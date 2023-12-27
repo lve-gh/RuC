@@ -247,6 +247,7 @@ typedef enum LABEL
 	L_END,				/**< Тип метки -- переход в конец конструкции */
 	L_BEGIN_CYCLE,		/**< Тип метки -- переход в начало цикла */
 	L_CASE,				/**< Тип метки -- переход по case */
+	L_CASE_CONDITION    /**< Тип метки -- условие для case */
 } mips_label_t;
 
 typedef struct label
@@ -1211,6 +1212,9 @@ static void emit_label(encoder *const enc, const label *const lbl)
 		case L_CASE:
 			uni_printf(io, "CASE");
 			break;
+		case L_CASE_CONDITION:
+			uni_printf(io, "CASE_CONDITION");
+			break;
 	}
 
 	uni_printf(io, "%zu", lbl->num);
@@ -1853,6 +1857,7 @@ static void emit_binary_operation(encoder *const enc, const rvalue *const dest
 			case BIN_NE:
 				emit_bin_registers_cond_branching(enc, dest, &real_first_operand,
 					&real_second_operand, operator);
+
 				break;
 			default:
 			{
@@ -2687,24 +2692,29 @@ static rvalue emit_binary_expression(encoder *const enc, const node *const nd)
  */
 static rvalue emit_ternary_expression(encoder *const enc, const node *const nd)
 {
+	const label old_label_if_true = enc->label_if_true;
+	const label old_label_if_false = enc->label_if_false;
+
+	const size_t label_num = enc->label_num++;
+	const label label_end = { .kind = L_END, .num = label_num };
+	const label label_else = { .kind = L_ELSE, .num = label_num };
+	const label label_body = { .kind = L_THEN, .num = label_num };
+
+	enc->label_if_true = label_body;
+	enc->label_if_false = label_else;
+
 	const node condition = expression_ternary_get_condition(nd);
 	const rvalue value = emit_expression(enc, &condition);
 
-	const size_t label_num = enc->label_num++;
-	const label label_else = { .kind = L_ELSE, .num = label_num };
-
-	const riscv_instruction_t instruction = IC_RISCV_BNE;
-	emit_conditional_branch_old(enc, instruction, &value, &label_else);
-	free_rvalue(enc, &value);
-
 	const rvalue result = {.kind = RVALUE_KIND_REGISTER, .val.reg_num = get_register(enc), .from_lvalue = !FROM_LVALUE, .type = expression_get_type(nd)};
+
+	emit_label_declaration(enc, &label_body);
 
 	const node LHS = expression_ternary_get_LHS(nd);
 	const rvalue LHS_rvalue = emit_expression(enc, &LHS);
 	emit_move_rvalue_to_register(enc, result.val.reg_num, &LHS_rvalue);
 	free_rvalue(enc, &LHS_rvalue);
 
-	const label label_end = { .kind = L_END, .num = label_num };
 	emit_unconditional_branch(enc, IC_RISCV_J, &label_end);
 	emit_label_declaration(enc, &label_else);
 
@@ -2714,6 +2724,9 @@ static rvalue emit_ternary_expression(encoder *const enc, const node *const nd)
 	free_rvalue(enc, &RHS_rvalue);
 
 	emit_label_declaration(enc, &label_end);
+
+	enc->label_if_true = old_label_if_true;
+	enc->label_if_false = old_label_if_false;
 
 	return result;
 }
@@ -3572,6 +3585,9 @@ static void emit_switch_statement(encoder *const enc, const node *const nd)
 	const size_t label_num = enc->label_num++;
 	size_t curr_case_label_num = enc->case_label_num;
 
+	const label old_label_if_true = enc->label_if_true;
+	const label old_label_if_false = enc->label_if_false;
+
 	const label old_label_break = enc->label_break;
 	enc->label_break = (label){ .kind = L_END, .num = label_num };
 
@@ -3595,6 +3611,9 @@ static void emit_switch_statement(encoder *const enc, const node *const nd)
 		{
 			const size_t case_num = enc->case_label_num++;
 			const label label_case = { .kind = L_CASE, .num = case_num };
+			const label label_case_condition = { .kind = L_CASE_CONDITION, .num = case_num };
+			const label label_next_condition = { .kind = L_CASE_CONDITION, .num = case_num + 1 };
+			emit_label_declaration(enc, &label_case_condition);
 
 			const node case_expr = statement_case_get_expression(&substmt);
 			const rvalue case_expr_rvalue = emit_literal_expression(enc, &case_expr);
@@ -3606,13 +3625,17 @@ static void emit_switch_statement(encoder *const enc, const node *const nd)
 				.val.reg_num = get_register(enc),
 				.type = TYPE_INTEGER
 			};
+			enc->label_if_true = label_case;
+			enc->label_if_false = label_next_condition;
 			emit_binary_operation(enc, &result_rvalue, &condition_rvalue, &case_expr_rvalue, BIN_EQ);
-			emit_conditional_branch_old(enc, IC_RISCV_BEQ, &result_rvalue, &label_case);
 
 			free_rvalue(enc, &result_rvalue);
 		}
 		else if (substmt_class == STMT_DEFAULT)
 		{
+			const label label_case_condition = { .kind = L_CASE_CONDITION, .num = enc->case_label_num };
+			emit_label_declaration(enc, &label_case_condition);
+
 			// Только получаем индекс, а размещение прыжка по нужной метке будет после всех case'ов
 			default_index = enc->case_label_num++;
 		}
@@ -3625,6 +3648,8 @@ static void emit_switch_statement(encoder *const enc, const node *const nd)
 	}
 	else
 	{
+		const label label_case_condition = { .kind = L_CASE_CONDITION, .num = enc->case_label_num++ };
+		emit_label_declaration(enc, &label_case_condition);
 		// Нет default => можем попасть в ситуацию, когда требуется пропустить все case'ы
 		emit_unconditional_branch(enc, IC_RISCV_J, &enc->label_break);
 	}
@@ -3655,6 +3680,9 @@ static void emit_switch_statement(encoder *const enc, const node *const nd)
 
 	emit_label_declaration(enc, &enc->label_break);
 	enc->label_break = old_label_break;
+
+	enc->label_if_true = old_label_if_true;
+	enc->label_if_false = old_label_if_false;
 }
 
 /**
@@ -3669,6 +3697,8 @@ static void emit_while_statement(encoder *const enc, const node *const nd)
 	const label label_begin = { .kind = L_BEGIN_CYCLE, .num = label_num };
 	const label label_end = { .kind = L_END, .num = label_num };
 
+	const label loop_body = { .kind = L_THEN, .num = label_num};
+
 	const label old_continue = enc->label_continue;
 	const label old_break = enc->label_break;
 
@@ -3678,13 +3708,22 @@ static void emit_while_statement(encoder *const enc, const node *const nd)
 	emit_label_declaration(enc, &label_begin);
 
 	const node condition = statement_while_get_condition(nd);
+
+	const label old_label_if_true = enc->label_if_true;
+	const label old_label_if_false = enc->label_if_false;
+
+	enc->label_if_true = loop_body;
+	enc->label_if_false = label_end;
+
 	const rvalue value = emit_expression(enc, &condition);
 
-	const riscv_instruction_t instruction = IC_RISCV_BEQ;
-	emit_conditional_branch_old(enc, instruction, &value, &label_end);
+	enc->label_if_true = old_label_if_true;
+	enc->label_if_false = old_label_if_false;
+
 	free_rvalue(enc, &value);
 
 	const node body = statement_while_get_body(nd);
+	emit_label_declaration(enc, &loop_body);
 	emit_statement(enc, &body);
 
 	emit_unconditional_branch(enc, IC_RISCV_J, &label_begin);
@@ -3719,10 +3758,18 @@ static void emit_do_statement(encoder *const enc, const node *const nd)
 	emit_label_declaration(enc, &label_condition);
 
 	const node condition = statement_do_get_condition(nd);
+
+	const label old_label_if_true = enc->label_if_true;
+	const label old_label_if_false = enc->label_if_false;
+
+	enc->label_if_true = label_begin;
+	enc->label_if_false = label_end;
+
 	const rvalue value = emit_expression(enc, &condition);
 
-	const riscv_instruction_t instruction = IC_RISCV_BNE;
-	emit_conditional_branch_old(enc, instruction, &value, &label_begin);
+	enc->label_if_true = old_label_if_true;
+	enc->label_if_false = old_label_if_false;
+
 	emit_label_declaration(enc, &label_end);
 	free_rvalue(enc, &value);
 
@@ -3749,23 +3796,34 @@ static void emit_for_statement(encoder *const enc, const node *const nd)
 	const size_t label_num = enc->label_num++;
 	const label label_begin = { .kind = L_BEGIN_CYCLE, .num = label_num };
 	const label label_end = { .kind = L_END, .num = label_num };
+	const label label_body = { .kind = L_THEN, .num = label_num };
 
 	const label old_continue = enc->label_continue;
 	const label old_break = enc->label_break;
 	enc->label_continue = label_begin;
 	enc->label_break = label_end;
 
+	const label old_label_if_true = enc->label_if_true;
+	const label old_label_if_false = enc->label_if_false;
+
 	emit_label_declaration(enc, &label_begin);
 	if (statement_for_has_condition(nd))
 	{
 		const node condition = statement_for_get_condition(nd);
+
+		enc->label_if_true = label_body;
+		enc->label_if_false = label_end;
+
 		const rvalue value = emit_expression(enc, &condition);
-		const riscv_instruction_t instruction = IC_RISCV_BEQ;
-		emit_conditional_branch_old(enc, instruction, &value, &label_end);
+
 		free_rvalue(enc, &value);
 	}
 
 	const node body = statement_for_get_body(nd);
+
+	emit_label(enc, &label_body);
+	uni_printf(enc->sx->io, "\n");
+
 	emit_statement(enc, &body);
 
 	if (statement_for_has_increment(nd))
@@ -3776,6 +3834,9 @@ static void emit_for_statement(encoder *const enc, const node *const nd)
 
 	emit_unconditional_branch(enc, IC_RISCV_J, &label_begin);
 	emit_label_declaration(enc, &label_end);
+
+	enc->label_if_true = old_label_if_true;
+	enc->label_if_false = old_label_if_false;
 
 	enc->label_continue = old_continue;
 	enc->label_break = old_break;
