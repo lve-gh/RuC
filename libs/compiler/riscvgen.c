@@ -42,7 +42,7 @@ static const size_t RA_SIZE = 4;					/**< Размер регистра ra дл�
 
 static const size_t TEMP_FP_REG_AMOUNT = 12;		/**< Количество временных регистров для чисел с плавающей точкой */
 static const size_t TEMP_REG_AMOUNT = 7;			/**< Количество обычных временных регистров */
-static const size_t ARG_REG_AMOUNT = 8;				/**< Количество регистров-аргументов для функций */
+static const size_t ARG_REG_AMOUNT = 8;				/**< Количество регистров-аргументов для функций (и int, и float) */
 
 static const size_t PRESERVED_REG_AMOUNT = 12;		/**< Количество сохраняемых регистров общего назначения */
 static const size_t PRESERVED_FP_REG_AMOUNT = 12;	/**< Количество сохраняемых регистров с плавающей точкой */
@@ -2193,12 +2193,14 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 	rvalue ret = {
 		.kind = RVALUE_KIND_REGISTER,
 		.type = return_type,
-		.val.reg_num = R_A0,
+		.val.reg_num = type_is_floating(enc->sx, return_type) ? R_FA0 : R_A0,
 		.from_lvalue = !FROM_LVALUE
 	};
 
 	// stack displacement: насколько нужно сместить стек, чтобы сохранить текущие значение регистров
-	size_t displ_for_parameters = params_amount * WORD_LENGTH;
+	// на каждый аргумент отводится 8 байт (чтобы хранить double значения)
+	size_t displ_for_parameters = (params_amount + 1) * WORD_LENGTH * 2;
+
 	// previous arguments displacement: здесь сохраняем на какой позиции мы сохранили каждый регистр,
 	// чтобы после возврата из функции  их восстановить
 	lvalue prev_arg_displ[ARG_REG_AMOUNT]; 
@@ -2213,26 +2215,14 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 		to_code_2R_I(enc->sx->io, IC_RISCV_ADDI, R_SP, R_SP, -(item_t)(displ_for_parameters));
 	}
 
-	assert(params_amount < ARG_REG_AMOUNT);
 	uni_printf(enc->sx->io, "\n\t# passing %zu parameters \n", params_amount);
 
-	const lvalue ret_lvalue = {
-		.base_reg = R_SP,
-		.loc.displ = 0 ,
-		.kind = LVALUE_KIND_STACK,
-		.type = return_type
-	};
+	lvalue saved_a0_lvalue;
+	lvalue saved_f0_lvalue;
 
-	// сохраняем на стеке a0 до обработки аргументов, 
-	// так как он используется также для хранения
-	// возвращаемого значения
-	emit_store_of_rvalue(
-		enc,
-		&ret_lvalue, 
-		&ret
-	);
-
-	for (size_t i = params_amount; i-- > 0;) // arguments, from last to first
+	size_t f_arg_counter = 0;
+	size_t arg_counter = 0;
+	for (size_t i = 0; i < params_amount; i++) 
 	{
 
 		const node arg = expression_call_get_argument(nd, i);
@@ -2243,23 +2233,16 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 		const rvalue tmp = emit_expression(enc, &arg);
 
 		const rvalue arg_rvalue = (tmp.kind == RVALUE_KIND_CONST) ? emit_load_of_immediate(enc, &tmp) : tmp;
-		assert(!type_is_floating(enc->sx, arg_rvalue.type));
+		// assert(!type_is_floating(enc->sx, arg_rvalue.type));
+		bool is_floating = type_is_floating(enc->sx, arg_rvalue.type);
+		size_t curr_arg_counter = is_floating ? f_arg_counter++ : arg_counter++;
 
-		if(i < ARG_REG_AMOUNT){
-			uni_printf(enc->sx->io, "\t# type %zu\n ", arg_rvalue.type);
-			uni_printf(enc->sx->io, "\t# backuping ");
-			riscv_register_to_io(enc->sx->io, (R_A0 + i));
-			uni_printf(enc->sx->io, " value on stack:\n");
-		}
-
+		mips_register_t arg_register = (is_floating ? R_FA0 : R_A0) + curr_arg_counter;
 
 		// tmp_arg_lvalue представляет место на стеке, куда сохраняем регистры a0-a7
-		// TODO: подумать, правильно ли использовать call convention из MIPS:
-		//		 первый на WORD_LENGTH выше предыдущего положения fp,
-		// 		 второй на 2*WORD_LENGTH и т.д.
 		const lvalue tmp_arg_lvalue = {
 			.base_reg = R_SP,
-			.loc.displ = i * WORD_LENGTH,
+			.loc.displ = (i + 1) * WORD_LENGTH * 2,
 			.kind = LVALUE_KIND_STACK,
 			.type = arg_rvalue.type
 		};
@@ -2267,64 +2250,98 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 		// arg_saved_rvalue представляет значение регистра, которое мы будем сохранять на стек
 		const rvalue arg_saved_rvalue = {
 			.kind = RVALUE_KIND_REGISTER,
-			.val.reg_num = (R_A0 + i),
+			.val.reg_num = arg_register,
 			.type = arg_rvalue.type,
 			.from_lvalue = !FROM_LVALUE
 		}; 
-		// сохранение текущего регистра-аргумента на стек
-		// для последующего восстановления
-		if (i > 0) {
+			
+		if (curr_arg_counter == 0) {
+			// значение, которое будет в a0 / fa0 сохраняем вначале на стек,
+			// а в сам регистр загрузим в последнюю очередь, так как
+			// вложенные вызовы могут затереть a0 и fa0
+			const lvalue saved_reg = (lvalue) {
+				.base_reg = R_SP,
+				.loc.displ = is_floating ? WORD_LENGTH * 2 : 0,
+				.kind = LVALUE_KIND_STACK,
+				.type = arg_rvalue.type
+			};
+			if (is_floating){
+				saved_f0_lvalue = saved_reg;
+			} else {
+				saved_a0_lvalue = saved_reg;
+			}
+			emit_store_of_rvalue(
+				enc,
+				&saved_reg, 
+				&arg_rvalue
+			);
+		} else {
+			// сохраняем a1..a7, f11..f17 на стек
+			// невлезающие в регистры аргументы сохраняем на стек следом -- call convention
 			emit_store_of_rvalue(
 				enc,
 				&tmp_arg_lvalue, 
-				i < ARG_REG_AMOUNT ? &arg_saved_rvalue : &arg_rvalue
+				curr_arg_counter < ARG_REG_AMOUNT ? &arg_saved_rvalue : &arg_rvalue
 			);
-		} else if (i == 0) {
-			// восстанавливаем a0 со стека, поскольку
-			// он мог измениться из-за вложенных вызовов
-			const rvalue tmp_rval = emit_load_of_lvalue(enc, &ret_lvalue);
 
-			emit_move_rvalue_to_register(
-				enc,
-				R_A0,
-				&tmp_rval
-			);
-			free_rvalue(enc, &tmp_rval);
+			if (curr_arg_counter < ARG_REG_AMOUNT){
+				// теперь записываем в регистры a1-a7/fa1-fa7 аргументы
+				emit_move_rvalue_to_register(
+					enc,
+					arg_register,
+					&arg_rvalue
+				);
+			}
+
 		}
-
-		if (i < ARG_REG_AMOUNT) {
-			// теперь записываем в регистры a0-a7 передаваемые аргументы
-
-			emit_move_rvalue_to_register(
-				enc,
-				R_A0 + i,
-				&arg_rvalue
-			);
-
-			// Запоминаем lvalue объект, который представляет забекапенное значение a0
-			prev_arg_displ[i] = tmp_arg_lvalue;	
-		}
-
+		
+		// Запоминаем lvalue объект, который представляет забекапенное значение
+		prev_arg_displ[i] = tmp_arg_lvalue;	
+		
 		free_rvalue(enc, &arg_rvalue);
 	}
+
+	// загружаем первые аргументы последним делом
+	// со стека, где мы их ранее сохранили
+	if (arg_counter) {
+		const rvalue tmp_rval = emit_load_of_lvalue(enc, &saved_a0_lvalue);
+		emit_move_rvalue_to_register(
+			enc,
+			R_A0 ,
+			&tmp_rval
+		);
+	}
+	if (f_arg_counter) {
+		const rvalue tmp_rval = emit_load_of_lvalue(enc, &saved_f0_lvalue);
+		emit_move_rvalue_to_register(
+			enc,
+			R_FA0 ,
+			&tmp_rval
+		);
+	}
+
 	const label label_func = { .kind = L_FUNC, .num = func_ref };
 	// выполняем прыжок в функцию по относительному смещению (метке)
 	emit_unconditional_branch(enc, IC_RISCV_JAL, &label_func);
 	uni_printf(enc->sx->io, "\n");
 	if (params_amount > 0) uni_printf(enc->sx->io, "\n\t# register restoring:\n");
 	
-
-	// восстановление значений регистров a0-a7 со стека 
+	f_arg_counter = arg_counter = 0;
+	// восстановление значений регистров a1-a7 со стека 
 	for (size_t i = 1; i < params_amount; ++i)
 	{
 		uni_printf(enc->sx->io, "\n");
 		// загружаем во временный регистр значение аргумента со стека
 		const rvalue tmp_rval = emit_load_of_lvalue(enc, &prev_arg_displ[i]);
-		assert(!type_is_floating(enc->sx, prev_arg_displ[i].type));
-		// теперь возвращаем изначальное значение регистра a0-a7
+		bool is_floating = type_is_floating(enc->sx, prev_arg_displ[i].type);
+		size_t curr_arg_counter = is_floating ? ++f_arg_counter : ++arg_counter;
+
+		mips_register_t arg_register = (is_floating ? R_FA0 : R_A0) + curr_arg_counter;
+	
+		// теперь возвращаем изначальное значение регистра a1-a7
 		emit_move_rvalue_to_register(
 			enc,
-			R_A0 + i,
+			arg_register,
 			&tmp_rval
 		);
 		// говорим, что больше не используем регистр, где записан tmp_rval
