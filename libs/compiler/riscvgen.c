@@ -2203,7 +2203,7 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 
 	// previous arguments displacement: здесь сохраняем на какой позиции мы сохранили каждый регистр,
 	// чтобы после возврата из функции  их восстановить
-	lvalue prev_arg_displ[ARG_REG_AMOUNT]; 
+	lvalue prev_arg_displ[params_amount]; 
 
 	// сдвигаем стек на кол-сто аргументов. В стеке хранятся или забекапенные данные, 
 	// которые были в регистрах a0-a7, или аргументы, которые не поместились в регистры.
@@ -2237,7 +2237,7 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 		bool is_floating = type_is_floating(enc->sx, arg_rvalue.type);
 		size_t curr_arg_counter = is_floating ? f_arg_counter++ : arg_counter++;
 
-		mips_register_t arg_register = (is_floating ? R_FA0 : R_A0) + curr_arg_counter;
+		riscv_register_t arg_register = (is_floating ? R_FA0 : R_A0) + curr_arg_counter;
 
 		// tmp_arg_lvalue представляет место на стеке, куда сохраняем регистры a0-a7
 		const lvalue tmp_arg_lvalue = {
@@ -2336,7 +2336,7 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 		bool is_floating = type_is_floating(enc->sx, prev_arg_displ[i].type);
 		size_t curr_arg_counter = is_floating ? ++f_arg_counter : ++arg_counter;
 
-		mips_register_t arg_register = (is_floating ? R_FA0 : R_A0) + curr_arg_counter;
+		riscv_register_t arg_register = (is_floating ? R_FA0 : R_A0) + curr_arg_counter;
 	
 		// теперь возвращаем изначальное значение регистра a1-a7
 		emit_move_rvalue_to_register(
