@@ -1181,7 +1181,7 @@ static void emit_label(encoder *const enc, const label *const lbl)
 	switch (lbl->kind)
 	{
 		case L_MAIN:
-			uni_printf(io, "MAIN");
+			uni_printf(io, "main");
 			break;
 		case L_FUNC:
 			uni_printf(io, "FUNC");
@@ -3284,7 +3284,7 @@ static void emit_function_definition(encoder *const enc, const node *const nd)
 	if (ref_ident == enc->sx->ref_main)
 	{
 		// FIXME: пока тут будут две метки для функции main
-		uni_printf(enc->sx->io, "MAIN:\n");
+		uni_printf(enc->sx->io, "main:\n");
 	}
 
 	uni_printf(enc->sx->io, "\t# \"%s\" function:\n", ident_get_spelling(enc->sx, ref_ident));
@@ -4013,6 +4013,19 @@ static void pregen(syntax *const sx)
 	uni_printf(sx->io, "\n");
 }
 
+// get from `clang --target=riscv64 -march=rv32gc -S`
+static void pregen_riscv(syntax *const sx)
+{
+	uni_printf(sx->io,
+		"\t.text\n"
+		"\t.attribute 4, 16\n"
+		"\t.attribute 5, \"rv32i2p0_m2p0_a2p0_f2p0_d2p0_c2p0\"\n"
+		"\t.file \"test.c\"\n"
+		"\t.globl main\n"
+		"\t.p2align	1\n"
+		"\t.type main,@function\n");
+}
+
 // создаём метки всех строк в программе
 static void strings_declaration(encoder *const enc)
 {
@@ -4060,7 +4073,7 @@ static void strings_declaration(encoder *const enc)
 	uni_printf(enc->sx->io, "\t.align 2\n\n");
 
 	// Прыжок на главную метку
-	uni_printf(enc->sx->io, "\tjal MAIN\n");
+	uni_printf(enc->sx->io, "\tjal main\n");
 
 	// Выход из программы в конце работы
 	to_code_R_I_R(enc->sx->io, IC_RISCV_LW, R_RA, 0, R_SP);
@@ -4103,6 +4116,16 @@ DEFARR2:\n\
 	uni_printf(enc->sx->io, "\t.size\tmain, .-main\n");
 }
 
+// from `clang --target=riscv64 -march=rv32gc -S`
+// TODO: use DEFARR from postgen when we will have code generation for arrays
+static void postgen_riscv(syntax *const sx)
+{
+	uni_printf(sx->io,
+		".Lfunc_end0:\n"
+		"\t.size	main, .Lfunc_end0-main\n"
+		"\t.section	\".note.GNU-stack\",\"\",@progbits\n"
+		"\t.addrsig\n");
+}
 
 /*
  *	 __     __   __     ______   ______     ______     ______   ______     ______     ______
@@ -4140,8 +4163,10 @@ int encode_to_riscv(const workspace *const ws, syntax *const sx)
 	// pregen(sx);
 	// strings_declaration(&enc);
 	// TODO: нормальное получение корня
+	pregen_riscv(sx);
 	const node root = node_get_root(&enc.sx->tree);
 	const int ret = emit_translation_unit(&enc, &root);
+	postgen_riscv(sx);
 	// postgen(&enc);
 
 	hash_clear(&enc.displacements);
