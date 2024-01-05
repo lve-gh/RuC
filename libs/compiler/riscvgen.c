@@ -54,8 +54,8 @@ static const size_t FUNC_DISPL_PRESEREVED = /* за sp */ 4 + /* за ra */ 4 +
 											/* fs0-fs11 (двойная точность): */ 12 * 8 + /* s0-s11: */ 12 * 4;
 
 
-// Назначение регистров взято из документации SYSTEM V APPLICATION BINARY INTERFACE MIPS RISC Processor, 3rd Edition
-typedef enum MIPS_REGISTER
+// Назначение регистров взято из документации SYSTEM V APPLICATION BINARY INTERFACE RISCV RISC Processor, 3rd Edition
+typedef enum RISCV_REGISTER
 {
 	R_ZERO,				/**< Always has the value 0 */
 
@@ -143,14 +143,12 @@ typedef enum MIPS_REGISTER
 	R_FS11				/**< Saved registers; their values are preserved across function calls */
 } riscv_register_t;
 
-// Назначение команд взято из документации MIPS® Architecture for Programmers
-// Volume II-A: The MIPS32® Instruction
-// Set Manual 2016
+// Назначение команд
 typedef enum INSTRUCTION
 {
-	IC_RISCV_MOVE,		/**< MIPS Pseudo-Instruction. Move the contents of one register to another */
-	IC_RISCV_LI,			/**< MIPS Pseudo-Instruction. Load a constant into a register */
-	IC_RISCV_NOT,		/**< MIPS Pseudo-Instruction. Flips the bits of the source register and
+	IC_RISCV_MOVE,		/**< RISCV Pseudo-Instruction. Move the contents of one register to another */
+	IC_RISCV_LI,			/**< RISCV Pseudo-Instruction. Load a constant into a register */
+	IC_RISCV_NOT,		/**< RISCV Pseudo-Instruction. Flips the bits of the source register and
 							stores them in the destination register (не из вышеуказанной книги) */
 
 	IC_RISCV_ADDI,		/**< To add a constant to a 32-bit integer. If overflow occurs, then trap */
@@ -215,7 +213,7 @@ typedef enum INSTRUCTION
 	IC_RISCV_DABS,		/**< Floating Point Absolute Value Double Precition*/
 
 	// TODO: here is no abs for integers in risc-v
-	IC_RISCV_ABS,		/**< GPR absolute value (не из вышеуказанной книги). MIPS Pseudo-Instruction. */
+	IC_RISCV_ABS,		/**< GPR absolute value (не из вышеуказанной книги). RISCV Pseudo-Instruction. */
 
 	// TODO: remove this instruction, they are not presented in risc-v
 
@@ -248,11 +246,11 @@ typedef enum LABEL
 	L_BEGIN_CYCLE,		/**< Тип метки -- переход в начало цикла */
 	L_CASE,				/**< Тип метки -- переход по case */
 	L_CASE_CONDITION    /**< Тип метки -- условие для case */
-} mips_label_t;
+} riscv_label_t;
 
 typedef struct label
 {
-	mips_label_t kind;
+	riscv_label_t kind;
 	size_t num;
 } label;
 
@@ -345,7 +343,7 @@ static void emit_structure_init(encoder *const enc, const lvalue *const target, 
 static void emit_statement(encoder *const enc, const node *const nd);
 
 
-static size_t mips_type_size(const syntax *const sx, const item_t type)
+static size_t riscv_type_size(const syntax *const sx, const item_t type)
 {
 	if (type_is_structure(sx, type))
 	{
@@ -354,7 +352,7 @@ static size_t mips_type_size(const syntax *const sx, const item_t type)
 		for (size_t i = 0; i < amount; i++)
 		{
 			const item_t member_type = type_structure_get_member_type(sx, type, i);
-			size += mips_type_size(sx, member_type);
+			size += riscv_type_size(sx, member_type);
 		}
 		return size;
 	}
@@ -521,13 +519,13 @@ static void free_rvalue(encoder *const enc, const rvalue *const rval)
 	}
 }
 
-/**	Get MIPS assembler binary instruction from binary_t type
+/**	Get RISCV assembler binary instruction from binary_t type
  *
  *	@param	operation_type		Type of operation in AST
  *	@param	is_imm				@c True if the instruction is immediate, @c False otherwise
   *	@param	is_floating		    @c True if the operands are float, @c False otherwise
  *
- *	@return	MIPS binary instruction
+ *	@return	RISCV binary instruction
  */
 static riscv_instruction_t get_bin_instruction(const binary_t operation_type, const bool is_imm,
 											  const bool is_floating)
@@ -1112,7 +1110,7 @@ static lvalue displacements_add(encoder *const enc, const size_t identifier, con
 	const item_t type = ident_get_type(enc->sx, identifier);
 	if (is_local && !is_register)
 	{
-		enc->scope_displ += mips_type_size(enc->sx, type);
+		enc->scope_displ += riscv_type_size(enc->sx, type);
 		enc->max_displ = max(enc->scope_displ, enc->max_displ);
 	}
 	const item_t location = is_local ? -(item_t)enc->scope_displ : (item_t)enc->global_displ;
@@ -1130,7 +1128,7 @@ static lvalue displacements_add(encoder *const enc, const size_t identifier, con
 
 	if (!is_local)
 	{
-		enc->global_displ += mips_type_size(enc->sx, type);
+		enc->global_displ += riscv_type_size(enc->sx, type);
 	}
 
 	return (lvalue) { .kind = is_register ? LVALUE_KIND_REGISTER : LVALUE_KIND_STACK, .base_reg = base_reg, .loc.displ = location, .type = type };
@@ -1472,7 +1470,7 @@ static lvalue emit_subscript_lvalue(encoder *const enc, const node *const nd)
 		return (lvalue) {
 			.kind = LVALUE_KIND_STACK,
 			.base_reg = base_value.val.reg_num,
-			.loc.displ = -(item_t)index_value.val.int_val * mips_type_size(enc->sx, type),
+			.loc.displ = -(item_t)index_value.val.int_val * riscv_type_size(enc->sx, type),
 			.type = type
 		};
 	}
@@ -1480,7 +1478,7 @@ static lvalue emit_subscript_lvalue(encoder *const enc, const node *const nd)
 	const rvalue type_size_value = {	// Можно было бы сделать отдельным конструктором
 		.from_lvalue = !FROM_LVALUE,
 		.kind = RVALUE_KIND_CONST,
-		.val.int_val = mips_type_size(enc->sx, type),
+		.val.int_val = riscv_type_size(enc->sx, type),
 		.type = TYPE_INTEGER
 	};
 	const rvalue offset = {
@@ -1520,7 +1518,7 @@ static lvalue emit_member_lvalue(encoder *const enc, const node *const nd)
 	for (size_t i = 0; i < member_index; i++)
 	{
 		const item_t member_type = type_structure_get_member_type(enc->sx, struct_type, i);
-		member_displ += mips_type_size(enc->sx, member_type);
+		member_displ += riscv_type_size(enc->sx, member_type);
 	}
 
 	const item_t type = expression_get_type(nd);
@@ -2212,7 +2210,7 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 
 	// сдвигаем стек на кол-сто аргументов. В стеке хранятся или забекапенные данные, 
 	// которые были в регистрах a0-a7, или аргументы, которые не поместились в регистры.
-	// TODO: почему в mipsgen стек не сдвигается здесь, если аргумент один, но
+	// TODO: почему в riscvgen стек не сдвигается здесь, если аргумент один, но
 	// 		 вместо этого в вызываемой функции sp сдвигается на слово?
 	if (params_amount >= 1)
 	{
@@ -2755,7 +2753,7 @@ static rvalue emit_struct_assignment(encoder *const enc, const lvalue *const tar
 
 		// Копирование всех данных из RHS
 		const item_t type = expression_get_type(value);
-		const size_t struct_size = mips_type_size(enc->sx, type);
+		const size_t struct_size = riscv_type_size(enc->sx, type);
 		for (size_t i = 0; i < struct_size; i += WORD_LENGTH)
 		{
 			// Грузим данные из RHS
@@ -3207,7 +3205,7 @@ static void emit_structure_init(encoder *const enc, const lvalue *const target, 
 			.loc.displ = target->loc.displ + displ,
 			.type = type
 		};
-		displ += mips_type_size(enc->sx, type);
+		displ += riscv_type_size(enc->sx, type);
 
 		const node subexpr = expression_initializer_get_subexpr(initializer, i);
 		if (expression_get_class(&subexpr) == EXPR_INITIALIZER)
@@ -3982,7 +3980,7 @@ static int emit_translation_unit(encoder *const enc, const node *const nd)
 static void pregen(syntax *const sx)
 {
 	// Подпись "GNU As:" для директив GNU
-	// Подпись "MIPS Assembler:" для директив ассемблера MIPS
+	// Подпись "RISCV Assembler:" для директив ассемблера RISCV
 
 	uni_printf(sx->io, "\t.section .mdebug.abi32\n");	// ?
 	uni_printf(sx->io, "\t.previous\n");				// следующая инструкция будет перенесена в секцию, описанную выше
