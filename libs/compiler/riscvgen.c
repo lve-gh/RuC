@@ -3819,7 +3819,7 @@ static void emit_for_statement(encoder *const enc, const node *const nd)
 
 	const node body = statement_for_get_body(nd);
 
-	emit_label(enc, &label_body);
+	emit_label_declaration(enc, &label_body);
 	uni_printf(enc->sx->io, "\n");
 
 	emit_statement(enc, &body);
