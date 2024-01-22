@@ -1737,7 +1737,6 @@ static rvalue emit_operand_load(encoder *const enc, const rvalue *const operand,
 		case BIN_EQ:
 		case BIN_NE:
 		case BIN_SUB:
-		case BIN_ADD:
 		case BIN_DIV:
 		case BIN_MUL:
 		case BIN_REM:
@@ -1752,6 +1751,8 @@ static rvalue emit_operand_load(encoder *const enc, const rvalue *const operand,
 		case BIN_AND:
 		case BIN_OR:
 		case BIN_XOR:
+		case BIN_ADD:
+
 			// Операции коммутативны и есть операция работающая с одним значением на регистре и одним в виде константы
 			// Логика замены операндов вне функции
 			return *operand;
@@ -1761,6 +1762,40 @@ static rvalue emit_operand_load(encoder *const enc, const rvalue *const operand,
 			return RVALUE_VOID;
 	}
 }
+
+/**
+ *	Gets original operands and loads them depending on the needs of operation. Intended for double operands
+ *
+ *	@param	enc					Encoder
+ *	@param	operand 			Original operand rvalue
+ *	@param  operation			Operation in which this operand used
+ *	@param  is_first_operand    Bool which defines if the operand is first in binary expression
+ *
+ *	@return new operand rvalue
+ */
+static rvalue emit_operand_load_double(encoder *const enc, const rvalue *const operand, const binary_t operation, const bool is_first_operand)
+{
+	switch (operation)
+	{
+		case BIN_LT:
+		case BIN_GT:
+		case BIN_LE:
+		case BIN_GE:
+		case BIN_EQ:
+		case BIN_NE:
+		case BIN_ADD:
+		case BIN_SUB:
+		case BIN_DIV:
+		case BIN_MUL:
+		case BIN_REM:
+			return (operand->kind == RVALUE_KIND_CONST) ? emit_load_of_immediate(enc, operand):  *operand;
+		default:
+			// Не может быть других операций
+			system_error(node_unexpected);
+			return RVALUE_VOID;
+	}
+}
+
 
 static void emit_bin_registers_cond_branching(encoder *const enc, const rvalue * const dest
 	, const rvalue * first_operand, const rvalue * second_operand, binary_t operator)
@@ -1842,8 +1877,17 @@ static void emit_binary_operation(encoder *const enc, const rvalue *const dest
 	}
 	else
 	{
-		const rvalue real_first_operand = emit_operand_load(enc, first_operand, operator, true);
-		const rvalue real_second_operand = emit_operand_load(enc, second_operand, operator, false);
+		rvalue real_first_operand, real_second_operand;
+
+		if (is_floating){
+			real_first_operand = emit_operand_load_double(enc, first_operand, operator, true);
+			real_second_operand = emit_operand_load_double(enc, second_operand, operator, false);
+		}
+		else {
+			real_first_operand = emit_operand_load(enc, first_operand, operator, true);
+			real_second_operand = emit_operand_load(enc, second_operand, operator, false);
+		}
+
 
 		switch (operator)
 		{
