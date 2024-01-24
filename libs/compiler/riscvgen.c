@@ -946,7 +946,7 @@ static void instruction_to_io(universal_io *const io, const riscv_instruction_t 
 			break;
 
 		case IC_RISCV_FMOV:
-			uni_printf(io, "mov");
+			uni_printf(io, "fmv.d");
 			break;
 
 		case IC_RISCV_MFC_1:
@@ -1637,7 +1637,7 @@ static void emit_move_rvalue_to_register(encoder *const enc
 	}
 	else
 	{
-		const riscv_instruction_t instruction = IC_RISCV_MOVE;
+		const riscv_instruction_t instruction = !type_is_floating(enc->sx, value->type) ? IC_RISCV_MOVE : IC_RISCV_FMOV;
 		uni_printf(enc->sx->io, "\t");
 		instruction_to_io(enc->sx->io, instruction);
 		uni_printf(enc->sx->io, " ");
@@ -3918,10 +3918,11 @@ static void emit_return_statement(encoder *const enc, const node *const nd)
 	{
 		const node expression = statement_return_get_expression(nd);
 		const rvalue value = emit_expression(enc, &expression);
-
-		const lvalue return_lval = { .kind = LVALUE_KIND_REGISTER, .loc.reg_num = R_A0, .type = value.type };
-
-		emit_store_of_rvalue(enc, &return_lval, &value);
+ 		if(!type_is_floating(enc->sx, value.type)){
+			const lvalue return_lval = { .kind = LVALUE_KIND_REGISTER, .loc.reg_num = R_A0, .type = value.type };
+			emit_store_of_rvalue(enc, &return_lval, &value);
+		}
+		// todo: support float return value
 		free_rvalue(enc, &value);
 	}
 
