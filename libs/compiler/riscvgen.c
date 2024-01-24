@@ -1802,7 +1802,7 @@ static void emit_bin_registers_cond_branching(encoder *const enc, const rvalue *
 {
 	const bool is_floating = type_is_floating(enc->sx, first_operand->type);
 	if (operator == BIN_GT || (is_floating && operator == BIN_GE) ||
-		(!is_floating && BIN_LE))
+		(!is_floating && operator == BIN_LE))
 	{
 		const rvalue * tmp = first_operand;
 		first_operand = second_operand;
