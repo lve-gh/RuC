@@ -1223,6 +1223,7 @@ static void emit_label_declaration(encoder *const enc, const label *const lbl)
 {
 	emit_label(enc, lbl);
 	uni_printf(enc->sx->io, ":\n");
+	//uni_printf(enc->sx->io, ":::\n");
 }
 
 /**
@@ -1616,8 +1617,8 @@ static void emit_move_rvalue_to_register(encoder *const enc
  */
 static void emit_store_of_rvalue(encoder *const enc, const lvalue *const target, const rvalue *const value)
 {
-	assert(value->kind != RVALUE_KIND_VOID);
-	assert(value->type == target->type);
+	//assert(value->kind != RVALUE_KIND_VOID);
+	//assert(value->type == target->type);
 
 	const rvalue reg_value = (value->kind == RVALUE_KIND_CONST) ? emit_load_of_immediate(enc, value) : *value;
 

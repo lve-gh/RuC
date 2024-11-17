@@ -2273,11 +2273,15 @@ int parse(syntax *const sx)
 		return -1;
 	}
 
+	//printf("%llu", sx->io->in_size);
+
 	parser prs = parser_create(sx);
 	node root = node_get_root(&sx->tree);
 	node_copy(&prs.bld.context, &root);
 
 	parse_translation_unit(&prs, &root);
+
+	//printf("%llu", sx.);
 
 #ifndef NDEBUG
 	write_tree(DEFAULT_TREE, sx);

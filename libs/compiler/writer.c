@@ -294,6 +294,8 @@ static void write_identifier_expression(writer *const wrt, const node *const nd)
 
 	const size_t id = expression_identifier_get_id(nd);
 	const char *const spelling = ident_get_spelling(wrt->sx, id);
+	//if (spelling[0] == '"')
+		//write_line(wrt, "!!!");
 	uni_printf(wrt->io, " named \'%s\' with id %zu", spelling, id);
 
 	write_expression_metadata(wrt, nd);
@@ -332,10 +334,16 @@ static void write_literal_expression(writer *const wrt, const node *const nd)
 			uni_printf(wrt->io, "%f", expression_literal_get_floating(nd));
 			break;
 
+		case TYPE_STRING:
+			//printf("!!!");
+			//uni_printf(wrt->io, "%s", expression_literal_get_string(nd));
+			break;
+
 		case TYPE_ARRAY:
 		{
 			const size_t string_num = expression_literal_get_string(nd);
 			const char *const string = string_get(wrt->sx, string_num);
+			//uni_printf(wrt->io, "\"%s\"", string);
 			uni_printf(wrt->io, "\"%s\"", string);
 		}
 		break;
@@ -672,8 +680,15 @@ static void write_variable_declaration(writer *const wrt, const node *const nd)
 	const char *const spelling = ident_get_spelling(wrt->sx, ident);
 	const item_t type = ident_get_type(wrt->sx, ident);
 
+	//printf("!!!%zu!!!", type);
 	uni_printf(wrt->io, " declaring variable named \'%s\' with id %zu of type '", spelling, ident);
-	write_type(wrt, type);
+	// 158 отвечает за char* !!!
+	// 10 отвечает за char[] 111
+	//if (type != 158)
+		write_type(wrt, type);
+	//else
+		//write_type(wrt, 10);
+		//write(wrt, "!!!!!!!!!");
 	write(wrt, "'\n");
 
 	const size_t amount = declaration_variable_get_bounds_amount(nd);
@@ -724,7 +739,6 @@ static void write_declaration(writer *const wrt, const node *const nd)
 	{
 		return;
 	}
-
 	wrt->indent++;
 	switch (declaration_get_class(nd))
 	{
@@ -820,10 +834,10 @@ static void write_default_statement(writer *const wrt, const node *const nd)
 static void write_compound_statement(writer *const wrt, const node *const nd)
 {
 	write_line(wrt, "STMT_COMPOUND\n");
-
 	const size_t size = statement_compound_get_size(nd);
 	for (size_t i = 0; i < size; i++)
 	{
+		//write_line(wrt, "!!!\n");
 		const node substmt = statement_compound_get_substmt(nd, i);
 		write_statement(wrt, &substmt);
 	}
@@ -1086,6 +1100,7 @@ static void write_translation_unit(writer *const wrt, const node *const nd)
 	{
 		const node declaration = translation_unit_get_declaration(nd, i);
 		write_declaration(wrt, &declaration);
+		//printf("%llu", declaration.tree->array[i]);
 	}
 }
 
@@ -2071,6 +2086,9 @@ static size_t write_instruction(universal_io *const io, const vector *const tabl
 
 void write_tree(const char *const path, syntax *const sx)
 {
+	//print_tree(sx);
+
+
 	universal_io io = io_create();
 	if (path == NULL || sx == NULL || out_set_file(&io, path))
 	{
@@ -2080,15 +2098,39 @@ void write_tree(const char *const path, syntax *const sx)
 	writer wrt = { .sx = sx, .io = &io };
 
 	const node root = node_get_root(&sx->tree);
+
+
 	write_translation_unit(&wrt, &root);
 
 	io_erase(&io);
+}
+
+void print_tree(syntax *const sx)
+{
+	printf("size:%llu\n", sx->tree.size);
+	const node root = node_get_root(&sx->tree);
+
+	const size_t size = translation_unit_get_size(&root);
+	for (size_t i = 0; i < size; i++)
+	{
+		//const node declaration = translation_unit_get_declaration(&root, i);
+		//write_declaration(wrt, &declaration);
+		//printf("size:%llu", size);
+	}
+
+	for (size_t i = 0; i < sx->tree.size; i++)
+	{
+		//printf("%llu", declaration.tree->array[0]);
+		//printf("%llu  %llu %i\n", i, sx->tree.array[i], type_get_class(sx, i));
+		printf("%llu  %llu\n", i, sx->tree.array[i]);
+	}
 }
 
 
 int write_type_spelling(const syntax *const sx, const item_t type, char *const buffer)
 {
 	const type_t type_class = type_get_class(sx, type);
+	//printf("%llu  %llu %i\n", type, sx->tree.array[type], type_get_class(sx, type));
 	switch (type_class)
 	{
 		case TYPE_VARARG:
@@ -2108,7 +2150,8 @@ int write_type_spelling(const syntax *const sx, const item_t type, char *const b
 
 		case TYPE_FLOATING:
 			return sprintf(buffer, "double");
-
+		case TYPE_STRING:
+			return sprintf(buffer, "string");
 		case TYPE_CHARACTER:
 			return sprintf(buffer, "char");
 

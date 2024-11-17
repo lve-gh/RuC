@@ -247,6 +247,7 @@ static size_t evaluate_args(builder *const bldr, const node *const format_str
 	size_t args = 0;
 	for (size_t i = 0; string[i] != '\0'; i += utf8_symbol_size(string[i]))
 	{
+		//printf("\n%c\n", string[i]);
 		if (utf8_convert(&string[i]) == '%')
 		{
 			i += utf8_symbol_size(string[i]);
@@ -322,7 +323,11 @@ static node build_printf_expression(builder *const bldr, node *const callee, nod
 
 	char32_t placeholders[MAX_PRINTF_ARGS];
 	item_t format_types[MAX_PRINTF_ARGS];
+	//TODO:
+	//Почему с printf работает неправильно?
 	const size_t expected_args = evaluate_args(bldr, &fst, format_types, placeholders);
+
+	//printf("\n%zd%zd\n", expected_args, argc - 1);
 
 	if (expected_args != argc - 1)
 	{

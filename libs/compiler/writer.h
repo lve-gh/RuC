@@ -31,6 +31,8 @@ extern "C" {
  */
 void write_tree(const char *const path, syntax *const sx);
 
+void print_tree(syntax *const sx);
+
 /**
  *	Write type spelling
  *

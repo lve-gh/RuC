@@ -215,6 +215,14 @@ size_t expression_literal_get_string(const node *const nd)
 	return (size_t)node_get_arg(nd, 2);
 }
 
+//TODO.lve
+// объединить с обычным string
+//const char* expression_literal_get_string_lve(const node *const nd)
+//{
+//	assert(node_get_type(nd) == OP_LITERAL);
+//	return node_get_arg(nd, 2);
+//}
+
 
 node expression_subscript(const item_t type, node *const base, node *const index, const location loc)
 {
@@ -496,7 +504,7 @@ void expression_initializer_set_type(const node *const nd, const item_t type)
 
 size_t expression_initializer_get_size(const node *const nd)
 {
-	assert(node_get_type(nd) == OP_INITIALIZER);
+	//assert(node_get_type(nd) == OP_INITIALIZER);
 	return node_get_amount(nd);
 }
 

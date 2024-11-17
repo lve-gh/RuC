@@ -627,6 +627,7 @@ bool type_is_floating(const syntax *const sx, const item_t type)
 	return type == TYPE_FLOATING || (type_is_const(sx, type) && type_is_floating(sx, type_const_get_unqualified_type(sx, type)));
 }
 
+
 bool type_is_arithmetic(const syntax *const sx, const item_t type)
 {
 	return type_is_integer(sx, type) || type_is_floating(sx, type);
@@ -693,7 +694,7 @@ bool type_is_aggregate(const syntax *const sx, const item_t type)
 
 bool type_is_string(const syntax *const sx, const item_t type)
 {
-	return type_is_array(sx, type) && type_array_get_element_type(sx, type) == TYPE_CHARACTER;
+	return type == TYPE_STRING || type_is_array(sx, type) && type_array_get_element_type(sx, type) == TYPE_CHARACTER;
 }
 
 bool type_is_struct_pointer(const syntax *const sx, const item_t type)

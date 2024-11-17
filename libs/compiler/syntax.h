@@ -35,6 +35,7 @@ extern "C" {
 #endif
 
 /** Type qualifiers */
+//changed: added string
 typedef enum TYPE
 {
 	TYPE_VARARG			= -9,
@@ -46,16 +47,17 @@ typedef enum TYPE
 	TYPE_CHARACTER,
 	TYPE_INTEGER,
 	TYPE_UNDEFINED,
+	TYPE_STRING,	
 
-	TYPE_MSG_INFO 		= 2,
-	TYPE_FUNCTION		= 1001,
+	TYPE_MSG_INFO 		= 3,
+	TYPE_FUNCTION		= 1002,
 	TYPE_STRUCTURE,
 	TYPE_ARRAY,
 	TYPE_POINTER,
 	TYPE_ENUM,
 	TYPE_CONST,
 
-	BEGIN_USER_TYPE = 15,
+	BEGIN_USER_TYPE = 16,
 } type_t;
 
 
@@ -414,6 +416,8 @@ bool type_is_integer(const syntax *const sx, const item_t type);
  *	@return	@c 1 on true, @c 0 on false
  */
 bool type_is_floating(const syntax *const sx, const item_t type);
+
+
 
 /**
  *	Check if type is arithmetic

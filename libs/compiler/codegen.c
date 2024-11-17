@@ -681,6 +681,15 @@ static void emit_literal_expression(encoder *const enc, const node *const nd)
 			return;
 		}
 
+		//case TYPE_STRING:
+		//{
+		//	const char* value = expression_literal_get_string_lve(nd);
+
+		//	mem_add(enc, IC_LID);
+		//	mem_add_string(enc, value);
+		//	return;
+		//}
+
 		case TYPE_ARRAY:
 		{
 			// Это может быть только строка

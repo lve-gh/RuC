@@ -135,8 +135,8 @@ inline bool expression_is_lvalue(const node *const nd)
 	return node_get_arg(nd, 1) == LVALUE;
 }
 
-
-/**
+size_t expression_literal_get_string_lve(const node *const nd);
+	/**
  *	Create new identifier expression
  *
  *	@param	context			Context node
