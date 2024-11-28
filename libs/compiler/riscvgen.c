@@ -1056,7 +1056,8 @@ static void rvalue_const_to_io(universal_io *const io, const rvalue *const rval)
 		case TYPE_FLOATING:
 			uni_printf(io, "%f", rval->val.float_val);
 			break;
-
+		case 10:
+			uni_printf(io, "%s%i", "STRING", rval->val.str_index);
 		default:
 			system_error(node_unexpected);
 			break;
@@ -4112,11 +4113,11 @@ static void pregen(syntax *const sx)
 // get from `clang --target=riscv64 -march=rv32gc -S`
 static void pregen_riscv(syntax *const sx)
 {
-	uni_printf(sx->io, ".data\n"
-					   "\terror_message: .string \"Ошибка\"\n");
+	//uni_printf(sx->io, ".data\n"
+	//				   "\terror_message: .string \"Ошибка\"\n");
 	uni_printf(sx->io, "\t.text\n"
 					   "\t.attribute 4, 16\n"
-					   "\t.attribute 5, \"rv32i2p0_m2p0_a2p0_f2p0_d2p0_c2p0\"\n"
+	//				   "\t.attribute 5, \"rv32i2p0_m2p0_a2p0_f2p0_d2p0_c2p0\"\n"
 					   "\t.file \"test.c\"\n"
 					   "\t.globl main\n"
 					   "\t.p2align	1\n"
