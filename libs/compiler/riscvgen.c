@@ -4126,7 +4126,12 @@ static void pregen_riscv(syntax *const sx)
 static void standart_functions(syntax *const sx)
 {
 	uni_printf(sx->io, "FUNC158:\n"
-					   "\tecall\n");
+					   "\tli a1, a0\n"
+					   "\tli a0, 1\n"
+					   "\tli a2, 13\n"
+					   "\tli a7, 93\n"
+					   "\tecall\n"
+					   "\tjr ra\n");
 }
 
 // создаём метки всех строк в программе
@@ -4302,9 +4307,10 @@ int encode_to_riscv(const workspace *const ws, syntax *const sx)
 	}
 
 	// pregen(sx);
-	strings_declaration(&enc);
+	//strings_declaration(&enc);
 	// TODO: нормальное получение корня
 	pregen_riscv(sx);
+	strings_declaration(&enc);
 	standart_functions(sx);
 	//StringArray *postgen_funcs = createStringArray();
 
