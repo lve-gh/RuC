@@ -18,7 +18,7 @@
 
 #include "syntax.h"
 #include "workspace.h"
-
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {

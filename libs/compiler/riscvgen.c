@@ -21,6 +21,7 @@
 #include "tree.h"
 #include "uniprinter.h"
 
+
 #ifndef max
 	#define max(a, b) ((a) > (b) ? (a) : (b))
 #endif
@@ -1043,7 +1044,7 @@ static void to_code_R_I(universal_io *const io, const riscv_instruction_t instru
  *	@param	io					Universal io structure
  *	@param	rval				Rvalue whose value is to be printed
  */
-static void rvalue_const_to_io(universal_io *const io, const rvalue *const rval)
+static void rvalue_const_to_io(universal_io *const io, const rvalue *const rval, syntax *const sx)
 {
 	switch (rval->type)
 	{
@@ -1058,6 +1059,8 @@ static void rvalue_const_to_io(universal_io *const io, const rvalue *const rval)
 			break;
 		case 10:
 			uni_printf(io, "%s%i", "STRING", rval->val.str_index);
+			//uni_printf(io, "%i", strlen(string_get(sx, rval->val.str_index)));
+			uni_printf(io, "\n\tli a2, %i", strlen(string_get(sx, rval->val.str_index)));
 		default:
 			system_error(node_unexpected);
 			break;
@@ -1076,7 +1079,7 @@ static void rvalue_to_io(encoder *const enc, const rvalue *const rval)
 
 	if (rval->kind == RVALUE_KIND_CONST)
 	{
-		rvalue_const_to_io(enc->sx->io, rval);
+		rvalue_const_to_io(enc->sx->io, rval, enc->sx);
 	}
 	else
 	{
@@ -1384,9 +1387,15 @@ static rvalue emit_load_of_immediate(encoder *const enc, const rvalue *const val
 	else
 	{
 		uni_printf(enc->sx->io, "\t");
-		instruction_to_io(enc->sx->io, instruction);
+		if (value->type == 10)
+			instruction_to_io(enc->sx->io, IC_RISCV_LA);
+		else
+			instruction_to_io(enc->sx->io, instruction);
 		uni_printf(enc->sx->io, " ");
-		riscv_register_to_io(enc->sx->io, reg);
+		if (value->type == 10)
+			riscv_register_to_io(enc->sx->io, R_A1);
+		else
+			riscv_register_to_io(enc->sx->io, reg);
 		uni_printf(enc->sx->io, ", ");
 		rvalue_to_io(enc, value);
 		uni_printf(enc->sx->io, "\n");
@@ -4127,10 +4136,9 @@ static void pregen_riscv(syntax *const sx)
 static void standart_functions(syntax *const sx)
 {
 	uni_printf(sx->io, "FUNC158:\n"
-					   "\tli a1, a0\n"
 					   "\tli a0, 1\n"
-					   "\tli a2, 13\n"
-					   "\tli a7, 93\n"
+					   //"\tli a2, 13\n"
+					   "\tli a7, 64\n"
 					   "\tecall\n"
 					   "\tjr ra\n");
 }
@@ -4138,8 +4146,8 @@ static void standart_functions(syntax *const sx)
 // создаём метки всех строк в программе
 static void strings_declaration(encoder *const enc)
 {
-	uni_printf(enc->sx->io, "\t.rdata\n");
-	uni_printf(enc->sx->io, "\t.align 2\n");
+	//uni_printf(enc->sx->io, "\t.rdata\n");
+	//uni_printf(enc->sx->io, "\t.align 2\n");
 
 	const size_t amount = strings_amount(enc->sx);
 	for (size_t i = 0; i < amount; i++)
@@ -4178,15 +4186,15 @@ static void strings_declaration(encoder *const enc)
 
 		uni_printf(enc->sx->io, "\\0\"\n");
 	}
-	uni_printf(enc->sx->io, "\t.text\n");
-	uni_printf(enc->sx->io, "\t.align 2\n\n");
+	//uni_printf(enc->sx->io, "\t.text\n");
+	//uni_printf(enc->sx->io, "\t.align 2\n\n");
 
 	// Прыжок на главную метку
-	uni_printf(enc->sx->io, "\tjal main\n");
+	//uni_printf(enc->sx->io, "\tjal main\n");
 
 	// Выход из программы в конце работы
-	to_code_R_I_R(enc->sx->io, IC_RISCV_LW, R_RA, 0, R_SP);
-	emit_register_branch(enc, IC_RISCV_JR, R_RA);
+	//to_code_R_I_R(enc->sx->io, IC_RISCV_LW, R_RA, 0, R_SP);
+	//emit_register_branch(enc, IC_RISCV_JR, R_RA);
 }
 
 static void postgen(encoder *const enc)
@@ -4238,18 +4246,17 @@ DEFARR1:\n\
 	li t0, 4				# Загрузка размера слова\n\
 	mul t0, t0, a1		# Подсчёт размера первого измерения массива в байтах\n\
 	sub t0, a0, t0		# Считаем адрес после конца массива, т.е. t0 -- на слово ниже последнего элемента\n\
-	addi t0, t0, -4\n\
 	jr ra\n ");
-	uni_printf(sx->io, "error:\n"
-					   "\tla x1, error_message\n"
-					   "\tli x17, 4\n"
-					   "\tecall\n" 
-					   "\tli x10, 1\n"
-					   "\tecall\n");
+	//uni_printf(sx->io, "error:\n"
+	//				   "\tla x1, error_message\n"
+	//				   "\tli x17, 4\n"
+	//				   "\tecall\n" 
+	//				   "\tli x10, 1\n"
+	//				   "\tecall\n");
 	uni_printf(sx->io, ".Lfunc_end0:\n"
 					   "\t.size	main, .Lfunc_end0-main\n"
-					   "\t.section	\".note.GNU-stack\",\"\",@progbits\n"
-					   "\t.addrsig\n");
+					   "\t.section	\".note.GNU-stack\",\"\",@progbits\n");
+					   //"\t.addrsig\n");
 }
 
 /*
@@ -4310,8 +4317,8 @@ int encode_to_riscv(const workspace *const ws, syntax *const sx)
 	// pregen(sx);
 	//strings_declaration(&enc);
 	// TODO: нормальное получение корня
-	pregen_riscv(sx);
 	strings_declaration(&enc);
+	pregen_riscv(sx);
 	standart_functions(sx);
 	//StringArray *postgen_funcs = createStringArray();
 
