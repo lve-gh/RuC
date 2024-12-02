@@ -1368,20 +1368,25 @@ static rvalue emit_load_of_immediate(encoder *const enc, const rvalue *const val
 		// const uint32_t hex_val2 = (real_val << 32) >> 32;
 		const riscv_register_t float_reg = get_float_register(enc);
 		// li t0, val1
-		printf("| %f |\n", value->val.float_val);
+		//printf("| %f |\n", value->val.float_val);
 
 		// to_code_R_I(enc->sx->io, IC_RISCV_LI, R_T0, hex_val1);
-		to_code_R_I(enc->sx->io, IC_RISCV_LI, R_T0, value->val.float_val);
+		const float f = (float)value->val.float_val;
+		//to_code_R_I(enc->sx->io, IC_RISCV_LI, R_T0, value->val.float_val);
+		//to_code_R_I(enc->sx->io, IC_RISCV_LI, R_T0, *(unsigned int *)&f);
+
+		//float_MY
+		uni_printf(enc->sx->io, "\tli f0 0x%x\n", *(unsigned int *)&f);
 
 		// sw t0, -4(fp)
-		to_code_R_I_R(enc->sx->io, IC_RISCV_SW, R_T0, -(item_t)WORD_LENGTH, R_FP);
+		//to_code_R_I_R(enc->sx->io, IC_RISCV_SW, R_FT0, -(item_t)WORD_LENGTH, R_FP);
 		// li t0, val2
-		to_code_R_I(enc->sx->io, IC_RISCV_LI, R_T0, value->val.float_val);
+		//to_code_R_I(enc->sx->io, IC_RISCV_LI, R_T0, value->val.float_val);
 		// to_code_R_I(enc->sx->io, IC_RISCV_LI, R_T0, hex_val2);
 		//  sw t0, -8(fp)
-		to_code_R_I_R(enc->sx->io, IC_RISCV_SW, R_T0, -(item_t)(2 * WORD_LENGTH), R_FP);
+		//to_code_R_I_R(enc->sx->io, IC_RISCV_SW, R_T0, -(item_t)(2 * WORD_LENGTH), R_FP);
 		// fld fi, -8(fp)
-		to_code_R_I_R(enc->sx->io, IC_RISCV_FLD, float_reg, -(item_t)(2 * WORD_LENGTH), R_FP);
+		//to_code_R_I_R(enc->sx->io, IC_RISCV_FLD, float_reg, -(item_t)(2 * WORD_LENGTH), R_FP);
 		reg = float_reg;
 	}
 	else
@@ -2209,6 +2214,7 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 		// TODO: что если аргумент - структура, которая сохранена на стеке
 		// TODO: что если аргумент - структура или тип, который занимает несколько регистров?
 		// TODO: возможно оптимизировать трансляцию указанного выше, меняя порядок аргументов
+		uni_printf(enc->sx->io, "AAAAA");
 		const rvalue tmp = emit_expression(enc, &arg);
 
 		const rvalue arg_rvalue = (tmp.kind == RVALUE_KIND_CONST) ? emit_load_of_immediate(enc, &tmp) : tmp;
