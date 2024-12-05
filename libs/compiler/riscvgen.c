@@ -1194,6 +1194,7 @@ static lvalue displacements_get(encoder *const enc, const size_t identifier)
  */
 static void emit_label(encoder *const enc, const label *const lbl)
 {
+	//printf("%i\n", lbl->kind);
 	universal_io *const io = enc->sx->io;
 	switch (lbl->kind)
 	{
@@ -1259,13 +1260,13 @@ static void emit_label_declaration(encoder *const enc, const label *const lbl)
  */
 static void emit_unconditional_branch(encoder *const enc, const riscv_instruction_t instruction, const label *const lbl)
 {
-	assert(instruction == IC_RISCV_J || instruction == IC_RISCV_JAL);
-
+	assert(instruction == IC_RISCV_J || instruction == IC_RISCV_JAL);	
 	uni_printf(enc->sx->io, "\t");
 	instruction_to_io(enc->sx->io, instruction);
 	uni_printf(enc->sx->io, " ");
 	emit_label(enc, lbl);
 	uni_printf(enc->sx->io, "\n");
+	
 }
 
 /**
@@ -1309,6 +1310,9 @@ static void emit_conditional_branch(encoder *const enc, const riscv_instruction_
 									const label *const lbl)
 {
 	// TODO: Handle constant
+	//if (lbl->num == 14757395258967641292)
+		//uni_printf(enc->sx->io, "\tli t2, 0\n");
+	//printf("%i\n", lbl->kind);
 	uni_printf(enc->sx->io, "\t");
 	instruction_to_io(enc->sx->io, instruction);
 	uni_printf(enc->sx->io, " ");
@@ -1316,7 +1320,10 @@ static void emit_conditional_branch(encoder *const enc, const riscv_instruction_
 	uni_printf(enc->sx->io, ", ");
 	rvalue_to_io(enc, second_operand);
 	uni_printf(enc->sx->io, ", ");
+	//if (lbl->num != 14757395258967641292)
 	emit_label(enc, lbl);
+	//else
+		//uni_printf(enc->sx->io, "TRUE_CONDITION");
 	uni_printf(enc->sx->io, "\n");
 }
 
@@ -1797,7 +1804,9 @@ static void emit_bin_registers_cond_branching(encoder *const enc, const rvalue *
 	const riscv_instruction_t instruction = get_bin_instruction(is_floating ? BIN_NE : operator, false, false);
 	if (!is_floating)
 	{
+		//printf("%i\n", enc->label_if_true.kind);
 		emit_conditional_branch(enc, instruction, first_operand, second_operand, &enc->label_if_true);
+		//uni_printf(enc->sx->io, "AAAAAAAAA\n");
 	}
 	else
 	{
@@ -1820,6 +1829,7 @@ static void emit_bin_registers_cond_branching(encoder *const enc, const rvalue *
 static void emit_binary_operation(encoder *const enc, const rvalue *const dest, const rvalue *const first_operand,
 								  const rvalue *const second_operand, const binary_t operator)
 {
+
 	assert(operator!= BIN_LOG_AND);
 	assert(operator!= BIN_LOG_OR);
 
@@ -1839,7 +1849,35 @@ static void emit_binary_operation(encoder *const enc, const rvalue *const dest, 
 			case BIN_GE:
 			case BIN_EQ:
 			case BIN_NE:
-				emit_bin_registers_cond_branching(enc, dest, first_operand, second_operand, operator);
+				const item_t curr_label_num = enc->label_num++;
+				const label label_else = { .kind = L_END, .num = (size_t)curr_label_num };
+				//printf("%zu", enc->label_num);
+				uni_printf(enc->sx->io, "\t");
+				instruction_to_io(enc->sx->io, IC_RISCV_SUB);
+				uni_printf(enc->sx->io, " ");
+				rvalue_to_io(enc, dest);
+				uni_printf(enc->sx->io, ", ");
+				rvalue_to_io(enc, first_operand);
+				uni_printf(enc->sx->io, ", ");
+				rvalue_to_io(enc, second_operand);
+				uni_printf(enc->sx->io, "\n");
+
+				const riscv_instruction_t instruction = get_bin_instruction(operator, false, false);
+				emit_conditional_branch(enc, instruction, dest, dest, &label_else);
+				//uni_printf(enc->sx->io, "AAAAAAAAAAA\n");
+				uni_printf(enc->sx->io, "\t");
+				instruction_to_io(enc->sx->io, IC_RISCV_LI);
+				uni_printf(enc->sx->io, " ");
+				rvalue_to_io(enc, dest);
+				uni_printf(enc->sx->io, ", 1\n");
+
+				emit_label_declaration(enc, &label_else);
+
+				uni_printf(enc->sx->io, "\n");
+				//uni_printf(enc->sx->io, "AAAAAAAAAAA\n");
+				//uni_printf(enc->sx->io, "AAAAA\n");
+				//emit_bin_registers_cond_branching(enc, dest, first_operand, second_operand, operator);
+				//uni_printf(enc->sx->io, "AAAAA\n");
 				break;
 			default:
 			{
@@ -1870,7 +1908,31 @@ static void emit_binary_operation(encoder *const enc, const rvalue *const dest, 
 			case BIN_GE:
 			case BIN_EQ:
 			case BIN_NE:
-				emit_bin_registers_cond_branching(enc, dest, &real_first_operand, &real_second_operand, operator);
+				const item_t curr_label_num = enc->label_num++;
+				const label label_else = { .kind = L_ELSE, .num = (size_t)curr_label_num };
+				// Записываем <значение из first_operand> - <значение из second_operand> в dest
+				uni_printf(enc->sx->io, "\t");
+				instruction_to_io(enc->sx->io, IC_RISCV_SUB);
+				uni_printf(enc->sx->io, " ");
+				rvalue_to_io(enc, dest);
+				uni_printf(enc->sx->io, ", ");
+				rvalue_to_io(enc, &real_first_operand);
+				uni_printf(enc->sx->io, ", ");
+				rvalue_to_io(enc, &real_second_operand);
+				uni_printf(enc->sx->io, "\n");
+				const riscv_instruction_t instruction = get_bin_instruction(operator, false, false);
+				emit_conditional_branch(enc, instruction, dest, dest,&label_else);
+
+				uni_printf(enc->sx->io, "\t");
+				instruction_to_io(enc->sx->io, IC_RISCV_LI);
+				uni_printf(enc->sx->io, " ");
+				rvalue_to_io(enc, dest);
+				uni_printf(enc->sx->io, ", 1\n");
+
+				emit_label_declaration(enc, &label_else);
+
+				uni_printf(enc->sx->io, "\n");
+				//emit_bin_registers_cond_branching(enc, dest, &real_first_operand, &real_second_operand, operator);
 
 				break;
 			default:
@@ -2214,9 +2276,9 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 		// TODO: что если аргумент - структура, которая сохранена на стеке
 		// TODO: что если аргумент - структура или тип, который занимает несколько регистров?
 		// TODO: возможно оптимизировать трансляцию указанного выше, меняя порядок аргументов
-		uni_printf(enc->sx->io, "AAAAA");
+		//uni_printf(enc->sx->io, "AAAAA\n");
 		const rvalue tmp = emit_expression(enc, &arg);
-
+		//uni_printf(enc->sx->io, "AAAAA\n");
 		const rvalue arg_rvalue = (tmp.kind == RVALUE_KIND_CONST) ? emit_load_of_immediate(enc, &tmp) : tmp;
 		// assert(!type_is_floating(enc->sx, arg_rvalue.type));
 		bool is_floating = type_is_floating(enc->sx, arg_rvalue.type);
@@ -2521,6 +2583,7 @@ static bool is_binary_cond_operator(binary_t operator)
  */
 static rvalue emit_binary_expression(encoder *const enc, const node *const nd)
 {
+	//printf("%i\n", enc->label_if_true.kind);
 	const binary_t operator= expression_binary_get_operator(nd);
 	const node LHS = expression_binary_get_LHS(nd);
 	const node RHS = expression_binary_get_RHS(nd);
@@ -2582,7 +2645,7 @@ static rvalue emit_binary_expression(encoder *const enc, const node *const nd)
 			enc->label_if_false = old_label_if_false;
 
 			const rvalue rhs_rvalue = emit_expression(enc, &RHS);
-			assert(lhs_rvalue.val.reg_num == rhs_rvalue.val.reg_num);
+			//assert(lhs_rvalue.val.reg_num == rhs_rvalue.val.reg_num);
 
 			enc->label_if_true = old_label_if_true;
 			enc->label_if_false = old_label_if_false;
@@ -2611,8 +2674,11 @@ static rvalue emit_binary_expression(encoder *const enc, const node *const nd)
 				assign_val.from_lvalue = false;
 				clear_lhs = clear_rhs = true;
 			}
+			//uni_printf(enc->sx->io, "AAAAA\n");
+			//printf("%llu", enc->sx->cur_id);
+			//printf("%i\n", enc->label_if_true.kind);
 			emit_binary_operation(enc, &assign_val, &lhs_rvalue, &rhs_rvalue, operator);
-
+			//uni_printf(enc->sx->io, "AAAAA\n");
 			enc->label_if_true = old_label_if_true;
 			enc->label_if_false = old_label_if_false;
 			if (clear_lhs)
@@ -2798,7 +2864,6 @@ static rvalue emit_assignment_expression(encoder *const enc, const node *const n
 			system_error(node_unexpected);
 			return RVALUE_VOID;
 	}
-
 	emit_binary_operation(enc, &target_value, &target_value, &value, correct_operation);
 	free_rvalue(enc, &value);
 
@@ -2861,9 +2926,11 @@ static rvalue emit_expression(encoder *const enc, const node *const nd)
 			return emit_cast_expression(enc, nd);
 
 		case EXPR_UNARY:
+
 			return emit_unary_expression(enc, nd);
 
 		case EXPR_BINARY:
+			//uni_printf(enc->sx->io, "\tAAAAAAAAAAA\n");
 			return emit_binary_expression(enc, nd);
 
 		case EXPR_ASSIGNMENT:
@@ -3742,6 +3809,7 @@ static void emit_switch_statement(encoder *const enc, const node *const nd)
 	//							   .type = TYPE_INTEGER };
 
 	const node condition = statement_switch_get_condition(nd); // понять, почему тут регистр не t1, а t0
+
 	emit_expression(enc, &condition);
 	//uni_printf(enc->sx->io, "\t%s%zu\n", "li t0, ", result_rvalue_tmp.val.int_val);
 	uni_printf(enc->sx->io, "\t%s%i\n", "call CALL_CASE_CONDITION_", switch_counter);
@@ -3923,7 +3991,6 @@ static void emit_for_statement(encoder *const enc, const node *const nd)
 
 		enc->label_if_true = label_body;
 		enc->label_if_false = label_end;
-
 		const rvalue value = emit_expression(enc, &condition);
 
 		free_rvalue(enc, &value);
@@ -4147,6 +4214,20 @@ static void standart_functions(syntax *const sx)
 					   "\tli a7, 64\n"
 					   "\tecall\n"
 					   "\tjr ra\n");
+	uni_printf(sx->io, "TRUE_CONDITION:\n"
+					   "\tli t2, 1\n"
+					   "\tjr ra\n");
+	uni_printf(sx->io, "FUNC2:\n"
+					   "\tli t3, 1\n"
+					   "\tbne t2, t3, ASSERT_EXCEPTION\n"
+					   //"\tli a2, 13\n"
+					   "\tjr ra\n");
+	uni_printf(sx->io, "ASSERT_EXCEPTION:\n"
+					   "\tli a0, 1\n"
+					   "\tli a7, 64\n"
+					   "\tecall\n"
+					   "\tli a7, 93\n"
+					   "\tecall\n");
 }
 
 // создаём метки всех строк в программе

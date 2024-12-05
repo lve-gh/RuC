@@ -1178,6 +1178,7 @@ static lvalue displacements_get(encoder *const enc, const size_t identifier)
  */
 static void emit_label(encoder *const enc, const label *const lbl)
 {
+	//printf("%i\n", lbl->kind);
 	universal_io *const io = enc->sx->io;
 	switch (lbl->kind)
 	{
@@ -1754,7 +1755,6 @@ static void emit_binary_operation(encoder *const enc, const rvalue *const dest
 			{
 				const item_t curr_label_num = enc->label_num++;
 				const label label_else = { .kind = L_END, .num = (size_t)curr_label_num };
-
 				uni_printf(enc->sx->io, "\t");
 				instruction_to_io(enc->sx->io, IC_MIPS_SUB);
 				uni_printf(enc->sx->io, " ");
@@ -2521,6 +2521,7 @@ static rvalue emit_unary_expression(encoder *const enc, const node *const nd)
  */
 static rvalue emit_binary_expression(encoder *const enc, const node *const nd)
 {
+	//printf("%i\n", enc->label_if_true.kind);
 	const binary_t operator = expression_binary_get_operator(nd);
 	const node LHS = expression_binary_get_LHS(nd);
 	const node RHS = expression_binary_get_RHS(nd);
