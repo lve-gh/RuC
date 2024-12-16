@@ -321,6 +321,7 @@ typedef struct encoder
 	label label_if_true;		/**< Метка перехода по then */
 	label label_if_false;		/**< Метка перехода по else */
 	label label_break;			/**< Метка break */
+	label label_end_counter;
 	size_t curr_function_ident; /**< Идентификатор текущей функций */
 
 	bool registers[22]; /**< Информация о занятых регистрах */
@@ -1235,7 +1236,6 @@ static void emit_label(encoder *const enc, const label *const lbl)
 			uni_printf(io, "DEFAULT");
 			break;
 	}
-
 	uni_printf(io, "%zu", lbl->num);
 }
 
@@ -1318,10 +1318,16 @@ static void emit_conditional_branch(encoder *const enc, const riscv_instruction_
 	uni_printf(enc->sx->io, " ");
 	rvalue_to_io(enc, first_operand);
 	uni_printf(enc->sx->io, ", ");
+	//uni_printf(enc->sx->io, "t1");
 	rvalue_to_io(enc, second_operand);
 	uni_printf(enc->sx->io, ", ");
 	//if (lbl->num != 14757395258967641292)
-	emit_label(enc, lbl);
+	if (lbl->kind != L_END)
+		emit_label(enc, lbl);
+	else
+		uni_printf(enc->sx->io, "%s%zu", "END", (lbl->num - 1));
+
+	//uni_printf(enc->sx->io, "%zu", lbl->num);
 	//else
 		//uni_printf(enc->sx->io, "TRUE_CONDITION");
 	uni_printf(enc->sx->io, "\n");
@@ -1383,8 +1389,8 @@ static rvalue emit_load_of_immediate(encoder *const enc, const rvalue *const val
 		//to_code_R_I(enc->sx->io, IC_RISCV_LI, R_T0, *(unsigned int *)&f);
 
 		//float_MY
-		uni_printf(enc->sx->io, "\tli f0 0x%x\n", *(unsigned int *)&f);
-
+		uni_printf(enc->sx->io, "\tli t0, 0x%x\n", *(unsigned int *)&f);
+		uni_printf(enc->sx->io, "\tfmv.d.x f0, t0 \n");
 		// sw t0, -4(fp)
 		//to_code_R_I_R(enc->sx->io, IC_RISCV_SW, R_FT0, -(item_t)WORD_LENGTH, R_FP);
 		// li t0, val2
@@ -1826,10 +1832,11 @@ static void emit_bin_registers_cond_branching(encoder *const enc, const rvalue *
  *	@param	second_operand		Second rvalue operand
  *	@param	operator			Operator
  */
+int labelNumGlobal = 0;
 static void emit_binary_operation(encoder *const enc, const rvalue *const dest, const rvalue *const first_operand,
 								  const rvalue *const second_operand, const binary_t operator)
 {
-
+	//printf("%llu\n",	val.reg_num);
 	assert(operator!= BIN_LOG_AND);
 	assert(operator!= BIN_LOG_OR);
 
@@ -1850,34 +1857,26 @@ static void emit_binary_operation(encoder *const enc, const rvalue *const dest, 
 			case BIN_EQ:
 			case BIN_NE:
 				const item_t curr_label_num = enc->label_num++;
+				labelNumGlobal = (int)enc->label_num++;
 				const label label_else = { .kind = L_END, .num = (size_t)curr_label_num };
 				//printf("%zu", enc->label_num);
 				uni_printf(enc->sx->io, "\t");
-				instruction_to_io(enc->sx->io, IC_RISCV_SUB);
-				uni_printf(enc->sx->io, " ");
-				rvalue_to_io(enc, dest);
-				uni_printf(enc->sx->io, ", ");
-				rvalue_to_io(enc, first_operand);
-				uni_printf(enc->sx->io, ", ");
-				rvalue_to_io(enc, second_operand);
+				instruction_to_io(enc->sx->io, IC_RISCV_LI);
+				uni_printf(enc->sx->io, " t1, 1\n");
+
+				uni_printf(enc->sx->io, "\t");
 				uni_printf(enc->sx->io, "\n");
 
 				const riscv_instruction_t instruction = get_bin_instruction(operator, false, false);
-				emit_conditional_branch(enc, instruction, dest, dest, &label_else);
-				//uni_printf(enc->sx->io, "AAAAAAAAAAA\n");
-				uni_printf(enc->sx->io, "\t");
-				instruction_to_io(enc->sx->io, IC_RISCV_LI);
-				uni_printf(enc->sx->io, " ");
-				rvalue_to_io(enc, dest);
-				uni_printf(enc->sx->io, ", 1\n");
-
+				emit_conditional_branch(enc, instruction, first_operand, second_operand, &label_else);
+				//uni_printf(enc->sx->io, "\t");
+				//instruction_to_io(enc->sx->io, IC_RISCV_LI);
+				//uni_printf(enc->sx->io, " t1, 1\n");
+				// rvalue_to_io(enc, dest);
 				emit_label_declaration(enc, &label_else);
 
 				uni_printf(enc->sx->io, "\n");
-				//uni_printf(enc->sx->io, "AAAAAAAAAAA\n");
-				//uni_printf(enc->sx->io, "AAAAA\n");
 				//emit_bin_registers_cond_branching(enc, dest, first_operand, second_operand, operator);
-				//uni_printf(enc->sx->io, "AAAAA\n");
 				break;
 			default:
 			{
@@ -1908,20 +1907,21 @@ static void emit_binary_operation(encoder *const enc, const rvalue *const dest, 
 			case BIN_GE:
 			case BIN_EQ:
 			case BIN_NE:
+				//printf("%zu", enc->label_num);
 				const item_t curr_label_num = enc->label_num++;
 				const label label_else = { .kind = L_ELSE, .num = (size_t)curr_label_num };
 				// Записываем <значение из first_operand> - <значение из second_operand> в dest
 				uni_printf(enc->sx->io, "\t");
-				instruction_to_io(enc->sx->io, IC_RISCV_SUB);
-				uni_printf(enc->sx->io, " ");
-				rvalue_to_io(enc, dest);
-				uni_printf(enc->sx->io, ", ");
-				rvalue_to_io(enc, &real_first_operand);
-				uni_printf(enc->sx->io, ", ");
-				rvalue_to_io(enc, &real_second_operand);
+				//instruction_to_io(enc->sx->io, IC_RISCV_SUB);
+				//uni_printf(enc->sx->io, " ");
+				//rvalue_to_io(enc, dest);
+				//uni_printf(enc->sx->io, ", ");
+				//rvalue_to_io(enc, &real_first_operand);
+				//uni_printf(enc->sx->io, ", ");
+				//rvalue_to_io(enc, &real_second_operand);
 				uni_printf(enc->sx->io, "\n");
 				const riscv_instruction_t instruction = get_bin_instruction(operator, false, false);
-				emit_conditional_branch(enc, instruction, dest, dest,&label_else);
+				emit_conditional_branch(enc, instruction, &real_first_operand, &real_second_operand, &label_else);
 
 				uni_printf(enc->sx->io, "\t");
 				instruction_to_io(enc->sx->io, IC_RISCV_LI);
@@ -1930,7 +1930,10 @@ static void emit_binary_operation(encoder *const enc, const rvalue *const dest, 
 				uni_printf(enc->sx->io, ", 1\n");
 
 				emit_label_declaration(enc, &label_else);
-
+				uni_printf(enc->sx->io, "\tli t1, 0\n");
+				int temp = (int)(enc->label_num);
+				if (-temp + labelNumGlobal + 3 != 0)
+					uni_printf(enc->sx->io, "\tj END%i\n", (-temp + labelNumGlobal + 3));
 				uni_printf(enc->sx->io, "\n");
 				//emit_bin_registers_cond_branching(enc, dest, &real_first_operand, &real_second_operand, operator);
 
@@ -2032,6 +2035,7 @@ static rvalue emit_literal_expression(encoder *const enc, const node *const nd)
  */
 static rvalue emit_printf_expression(encoder *const enc, const node *const nd)
 {
+	//uni_printf(enc->sx->io, "\n\t------------printf expr------------------\n");
 	const node string = expression_call_get_argument(nd, 0);
 	const size_t index = expression_literal_get_string(&string);
 	const size_t amount = strings_amount(enc->sx);
@@ -2041,13 +2045,14 @@ static rvalue emit_printf_expression(encoder *const enc, const node *const nd)
 	{
 		const node arg = expression_call_get_argument(nd, i);
 		const rvalue val = emit_expression(enc, &arg);
+
 		const rvalue arg_rvalue = (val.kind == RVALUE_KIND_CONST) ? emit_load_of_immediate(enc, &val) : val;
 		const item_t arg_rvalue_type = arg_rvalue.type;
 
 		// Всегда хотим сохранять a0 и a1
-		to_code_2R_I(enc->sx->io, IC_RISCV_ADDI, R_SP, R_SP,
-					 -(item_t)WORD_LENGTH *
-						 (!type_is_floating(enc->sx, arg_rvalue_type) ? /* a0 и a1 */ 1 : /* a0, a1 и a2 */ 2));
+		//to_code_2R_I(enc->sx->io, IC_RISCV_ADDI, R_SP, R_SP,
+		//			 -(item_t)WORD_LENGTH *
+		//				 (!type_is_floating(enc->sx, arg_rvalue_type) ? /* a0 и a1 */ 1 : /* a0, a1 и a2 */ 2));
 		uni_printf(enc->sx->io, "\n");
 
 		const lvalue a0_lval = { .base_reg = R_SP,
@@ -2059,7 +2064,7 @@ static rvalue emit_printf_expression(encoder *const enc, const node *const nd)
 		const rvalue a0_rval = {
 			.kind = RVALUE_KIND_REGISTER, .val.reg_num = R_A0, .type = TYPE_INTEGER, .from_lvalue = !FROM_LVALUE
 		};
-		emit_store_of_rvalue(enc, &a0_lval, &a0_rval);
+		//emit_store_of_rvalue(enc, &a0_lval, &a0_rval);
 
 		const lvalue a1_lval = { .base_reg = R_SP,
 								 // по call convention: первый на WORD_LENGTH выше предыдущего положения fp,
@@ -2070,7 +2075,7 @@ static rvalue emit_printf_expression(encoder *const enc, const node *const nd)
 		const rvalue a1_rval = {
 			.kind = RVALUE_KIND_REGISTER, .val.reg_num = R_A1, .type = TYPE_INTEGER, .from_lvalue = !FROM_LVALUE
 		};
-		emit_store_of_rvalue(enc, &a1_lval, &a1_rval);
+		//emit_store_of_rvalue(enc, &a1_lval, &a1_rval);
 
 		if (!type_is_floating(enc->sx, arg_rvalue.type))
 		{
@@ -2078,7 +2083,7 @@ static rvalue emit_printf_expression(encoder *const enc, const node *const nd)
 			emit_move_rvalue_to_register(enc, R_A1, &arg_rvalue);
 
 			uni_printf(enc->sx->io, "\tlui t1, %%hi(STRING%zu)\n", index + (i - 1) * amount);
-			uni_printf(enc->sx->io, "\taddiu a0, t1, %%lo(STRING%zu)\n", index + (i - 1) * amount);
+			uni_printf(enc->sx->io, "\taddi a0, t1, %%lo(STRING%zu)\n", index + (i - 1) * amount);
 
 			uni_printf(enc->sx->io, "\tjal printf\n");
 			uni_printf(enc->sx->io, "\t");
@@ -2091,6 +2096,9 @@ static rvalue emit_printf_expression(encoder *const enc, const node *const nd)
 		}
 		else
 		{
+			uni_printf(enc->sx->io, "\tfsd f0, (sp)\n");
+			uni_printf(enc->sx->io, "\tlw a0, (sp)\n");
+			uni_printf(enc->sx->io, "\tflw fa2, (sp)\n");
 			const lvalue a2_lval = { .base_reg = R_SP,
 									 // по call convention: первый на WORD_LENGTH выше предыдущего положения
 									 // fp, второй на 2*WORD_LENGTH и т.д.
@@ -2100,42 +2108,45 @@ static rvalue emit_printf_expression(encoder *const enc, const node *const nd)
 			const rvalue a2_rval = {
 				.kind = RVALUE_KIND_REGISTER, .val.reg_num = R_A2, .type = TYPE_INTEGER, .from_lvalue = !FROM_LVALUE
 			};
-			emit_store_of_rvalue(enc, &a2_lval, &a2_rval);
+			//emit_store_of_rvalue(enc, &a2_lval, &a2_rval);
 			uni_printf(enc->sx->io, "\n");
 
+			//uni_printf
 			// Конвертируем single to double
-			uni_printf(enc->sx->io, "\t");
+			/*uni_printf(enc->sx->io, "\t");
 			instruction_to_io(enc->sx->io, IC_RISCV_CVT_D_S);
 			uni_printf(enc->sx->io, " ");
 			rvalue_to_io(enc, &arg_rvalue);
 			uni_printf(enc->sx->io, ", ");
 			rvalue_to_io(enc, &arg_rvalue);
-			uni_printf(enc->sx->io, "\n");
+			uni_printf(enc->sx->io, "\n");*/
 
 			// Следующие действия необходимы, т.к. аргументы в builtin-функции обязаны передаваться в a0-a3
 			// Даже для floating point!
 			// %lo из arg_rvalue в a1
-			uni_printf(enc->sx->io, "\t");
-			instruction_to_io(enc->sx->io, IC_RISCV_MFC_1);
-			uni_printf(enc->sx->io, " ");
-			riscv_register_to_io(enc->sx->io, R_A1);
-			uni_printf(enc->sx->io, ", ");
-			rvalue_to_io(enc, &arg_rvalue);
-			uni_printf(enc->sx->io, "\n");
+			//uni_printf(enc->sx->io, "\t");
+			//instruction_to_io(enc->sx->io, IC_RISCV_MFC_1);
+			//uni_printf(enc->sx->io, " ");
+			//riscv_register_to_io(enc->sx->io, R_A1);
+			//uni_printf(enc->sx->io, ", ");
+			//rvalue_to_io(enc, &arg_rvalue);
+			//uni_printf(enc->sx->io, "\n");
 
-			// %hi из arg_rvalue в a2
-			uni_printf(enc->sx->io, "\t");
-			instruction_to_io(enc->sx->io, IC_RISCV_MFHC_1);
-			uni_printf(enc->sx->io, " ");
-			riscv_register_to_io(enc->sx->io, R_A2);
-			uni_printf(enc->sx->io, ", ");
-			rvalue_to_io(enc, &arg_rvalue);
-			uni_printf(enc->sx->io, "\n");
+			//// %hi из arg_rvalue в a2
+			//uni_printf(enc->sx->io, "\t");
+			//instruction_to_io(enc->sx->io, IC_RISCV_MFHC_1);
+			//uni_printf(enc->sx->io, " ");
+			//riscv_register_to_io(enc->sx->io, R_A2);
+			//uni_printf(enc->sx->io, ", ");
+			//rvalue_to_io(enc, &arg_rvalue);
+			//uni_printf(enc->sx->io, "\n");
 
-			uni_printf(enc->sx->io, "\tlui t1, %%hi(STRING%zu)\n", index + (i - 1) * amount);
-			uni_printf(enc->sx->io, "\taddiu a0, t1, %%lo(STRING%zu)\n", index + (i - 1) * amount);
+			uni_printf(enc->sx->io, "\tfcvt.d.s fa2,fa2\n");
+			uni_printf(enc->sx->io, "\tfmv.x.d a1,fa2\n");
+			uni_printf(enc->sx->io, "\tlui a5, %%hi(STRING%zu)\n", index + (i - 1) * amount);
+			uni_printf(enc->sx->io, "\taddi a0, a5, %%lo(STRING%zu)\n", index + (i - 1) * amount);
 
-			uni_printf(enc->sx->io, "\tjal printf\n\t");
+			uni_printf(enc->sx->io, "\tcall printf\n\t");
 			instruction_to_io(enc->sx->io, IC_RISCV_NOP);
 			uni_printf(enc->sx->io, "\n");
 
@@ -2150,22 +2161,22 @@ static rvalue emit_printf_expression(encoder *const enc, const node *const nd)
 			uni_printf(enc->sx->io, "\n");
 		}
 
-		const rvalue a0_rval_to_copy = emit_load_of_lvalue(enc, &a0_lval);
-		emit_move_rvalue_to_register(enc, R_A0, &a0_rval_to_copy);
+		//const rvalue a0_rval_to_copy = emit_load_of_lvalue(enc, &a0_lval);
+		//emit_move_rvalue_to_register(enc, R_A0, &a0_rval_to_copy);
 
-		free_rvalue(enc, &a0_rval_to_copy);
-		uni_printf(enc->sx->io, "\n");
+		//free_rvalue(enc, &a0_rval_to_copy);
+		//uni_printf(enc->sx->io, "\n");
 
-		const rvalue a1_rval_to_copy = emit_load_of_lvalue(enc, &a1_lval);
-		emit_move_rvalue_to_register(enc, R_A1, &a1_rval_to_copy);
+		//const rvalue a1_rval_to_copy = emit_load_of_lvalue(enc, &a1_lval);
+		//emit_move_rvalue_to_register(enc, R_A1, &a1_rval_to_copy);
 
-		free_rvalue(enc, &a1_rval_to_copy);
-		uni_printf(enc->sx->io, "\n");
+		//free_rvalue(enc, &a1_rval_to_copy);
+		//uni_printf(enc->sx->io, "\n");
 
-		to_code_2R_I(enc->sx->io, IC_RISCV_ADDI, R_SP, R_SP,
-					 (item_t)WORD_LENGTH *
-						 (!type_is_floating(enc->sx, arg_rvalue_type) ? /* a0 и a1 */ 1 : /* a0, a1 и a2 */ 2));
-		uni_printf(enc->sx->io, "\n");
+		//to_code_2R_I(enc->sx->io, IC_RISCV_ADDI, R_SP, R_SP,
+		//			 (item_t)WORD_LENGTH *
+		//				 (!type_is_floating(enc->sx, arg_rvalue_type) ? /* a0 и a1 */ 1 : /* a0, a1 и a2 */ 2));
+		//uni_printf(enc->sx->io, "\n");
 	}
 
 	const lvalue a0_lval = { .base_reg = R_SP,
@@ -2179,9 +2190,9 @@ static rvalue emit_printf_expression(encoder *const enc, const node *const nd)
 	};
 	emit_store_of_rvalue(enc, &a0_lval, &a0_rval);
 
-	uni_printf(enc->sx->io, "\tlui t1, %%hi(STRING%zu)\n", index + (parameters_amount - 1) * amount);
-	uni_printf(enc->sx->io, "\taddiu a0, t1, %%lo(STRING%zu)\n", index + (parameters_amount - 1) * amount);
-	uni_printf(enc->sx->io, "\tjal printf\n");
+	uni_printf(enc->sx->io, "\tlui a5, %%hi(STRING%zu)\n", index + (parameters_amount - 1) * amount);
+	uni_printf(enc->sx->io, "\taddi a0, a5, %%lo(STRING%zu)\n", index + (parameters_amount - 1) * amount);
+	uni_printf(enc->sx->io, "\tcall printf\n");
 	uni_printf(enc->sx->io, "\t");
 	instruction_to_io(enc->sx->io, IC_RISCV_NOP);
 	uni_printf(enc->sx->io, "\n");
@@ -2269,6 +2280,7 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 
 	size_t f_arg_counter = 0;
 	size_t arg_counter = 0;
+
 	for (size_t i = 0; i < params_amount; i++)
 	{
 		const node arg = expression_call_get_argument(nd, i);
@@ -2314,7 +2326,7 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 			{
 				saved_a0_lvalue = saved_reg;
 			}
-			emit_store_of_rvalue(enc, &saved_reg, &arg_rvalue);
+			//emit_store_of_rvalue(enc, &saved_reg, &arg_rvalue);
 		}
 		else
 		{
@@ -2340,19 +2352,30 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 	// со стека, где мы их ранее сохранили
 	if (arg_counter)
 	{
-		const rvalue tmp_rval = emit_load_of_lvalue(enc, &saved_a0_lvalue);
-		emit_move_rvalue_to_register(enc, R_A0, &tmp_rval);
+		//const rvalue tmp_rval = emit_load_of_lvalue(enc, &saved_a0_lvalue);
+		//emit_move_rvalue_to_register(enc, R_A0, &tmp_rval);
 	}
 	if (f_arg_counter)
 	{
-		const rvalue tmp_rval = emit_load_of_lvalue(enc, &saved_f0_lvalue);
-		emit_move_rvalue_to_register(enc, R_FA0, &tmp_rval);
+		//const rvalue tmp_rval = emit_load_of_lvalue(enc, &saved_f0_lvalue);
+		//emit_move_rvalue_to_register(enc, R_FA0, &tmp_rval);
 	}
 
 	const label label_func = { .kind = L_FUNC, .num = func_ref };
+	//printf("%llu", label_func.num);
 	// выполняем прыжок в функцию по относительному смещению (метке)
-	emit_unconditional_branch(enc, IC_RISCV_JAL, &label_func);
+	if (label_func.num != 154)
+		emit_unconditional_branch(enc, IC_RISCV_JAL, &label_func);
+	else
+		emit_printf_expression(enc, nd);
 	uni_printf(enc->sx->io, "\n");
+	if (label_func.num == 10) {
+		uni_printf(enc->sx->io, "\tfmv.x.d a0, f0\n");
+		uni_printf(enc->sx->io, "\tfmv.d.x fa0, a0 \n");
+		uni_printf(enc->sx->io, "\tcall    cos\n");
+		//emit_store_of_rvalue(enc, &saved_f0_lvalue, &tmp);
+		//emit_store_of_rvalue(enc, &saved_f0_lvalue, );
+	}
 	if (params_amount > 0)
 		uni_printf(enc->sx->io, "\n\t# register restoring:\n");
 
@@ -2369,7 +2392,7 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 		riscv_register_t arg_register = (is_floating ? R_FA0 : R_A0) + curr_arg_counter;
 
 		// теперь возвращаем изначальное значение регистра a1-a7
-		emit_move_rvalue_to_register(enc, arg_register, &tmp_rval);
+		//emit_move_rvalue_to_register(enc, arg_register, &tmp_rval);
 		// говорим, что больше не используем регистр, где записан tmp_rval
 		free_rvalue(enc, &tmp_rval);
 	}
@@ -2620,7 +2643,7 @@ static rvalue emit_binary_expression(encoder *const enc, const node *const nd)
 			enc->label_if_false = old_label_if_false;
 
 			const rvalue rhs_rvalue = emit_expression(enc, &RHS);
-			assert(lhs_rvalue.val.reg_num == rhs_rvalue.val.reg_num);
+			//assert(lhs_rvalue.val.reg_num == rhs_rvalue.val.reg_num);
 
 			enc->label_if_true = old_label_if_true;
 			enc->label_if_false = old_label_if_false;
@@ -3650,6 +3673,7 @@ static void emit_switch_statement_old(encoder *const enc, const node *const nd)
 										   .type = TYPE_INTEGER };
 			enc->label_if_true = label_case;
 			enc->label_if_false = label_next_condition;
+
 			emit_binary_operation(enc, &result_rvalue, &condition_rvalue, &case_expr_rvalue, BIN_EQ);
 
 			free_rvalue(enc, &result_rvalue);
@@ -4214,12 +4238,9 @@ static void standart_functions(syntax *const sx)
 					   "\tli a7, 64\n"
 					   "\tecall\n"
 					   "\tjr ra\n");
-	uni_printf(sx->io, "TRUE_CONDITION:\n"
-					   "\tli t2, 1\n"
-					   "\tjr ra\n");
 	uni_printf(sx->io, "FUNC2:\n"
-					   "\tli t3, 1\n"
-					   "\tbne t2, t3, ASSERT_EXCEPTION\n"
+					   "\tli a0, 1\n"
+					   "\tbne t2, a0, ASSERT_EXCEPTION\n"
 					   //"\tli a2, 13\n"
 					   "\tjr ra\n");
 	uni_printf(sx->io, "ASSERT_EXCEPTION:\n"
@@ -4334,7 +4355,14 @@ DEFARR1:\n\
 	mul t0, t0, a1		# Подсчёт размера первого измерения массива в байтах\n\
 	sub t0, a0, t0		# Считаем адрес после конца массива, т.е. t0 -- на слово ниже последнего элемента\n\
 	jr ra\n ");
-	//uni_printf(sx->io, "error:\n"
+
+	uni_printf(sx->io, " \n\n# defarr\n\
+DEFARR2:\n\
+  sw a0, 0(a2) \n\
+  mv t0, ra \n  jal ra, DEFARR1 \n\
+  mv ra, t0  \n\  addi a2, a2, -8 \n\  addi a0, t0, -8 \n  addi a3, a3, -1  \n\  bnez a3, DEFARR2 \n\  jr ra\n");
+
+	//uni_printf(sx->io, "error:
 	//				   "\tla x1, error_message\n"
 	//				   "\tli x17, 4\n"
 	//				   "\tecall\n" 

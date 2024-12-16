@@ -1210,7 +1210,6 @@ static void emit_label(encoder *const enc, const label *const lbl)
 			uni_printf(io, "CASE");
 			break;
 	}
-
 	uni_printf(io, "%zu", lbl->num);
 }
 
