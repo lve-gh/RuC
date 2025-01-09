@@ -1352,6 +1352,15 @@ static void emit_register_branch(encoder *const enc, const riscv_instruction_t i
 	uni_printf(enc->sx->io, "\n");
 }
 
+char *doubleToHex(double d)
+{
+	unsigned long long *longLongPtr = (unsigned long long *)&d; // Получаем доступ к битовому представлению
+	static char hexString[19]; // Достаточно места для 64-битного числа + нуль-терминатор
+
+	sprintf(hexString, "0x%016llx", *longLongPtr); // Форматируем в шестнадцатеричный формат
+
+	return hexString;
+}
 
 /*
  *	 ______     __  __     ______   ______     ______     ______     ______     __     ______     __   __     ______
@@ -1391,8 +1400,11 @@ static rvalue emit_load_of_immediate(encoder *const enc, const rvalue *const val
 		//to_code_R_I(enc->sx->io, IC_RISCV_LI, R_T0, *(unsigned int *)&f);
 
 		//float_MY
-		uni_printf(enc->sx->io, "\tli t0, 0x%x\n", *(unsigned int *)&f);
+		uni_printf(enc->sx->io, "\tli t0, %s\n", doubleToHex(f));
+		//uni_printf(enc->sx->io, "\tli t0, 0x%x\n", *(unsigned int *)&f);
 		uni_printf(enc->sx->io, "\tfmv.d.x f0, t0 \n");
+
+
 		// sw t0, -4(fp)
 		//to_code_R_I_R(enc->sx->io, IC_RISCV_SW, R_FT0, -(item_t)WORD_LENGTH, R_FP);
 		// li t0, val2
@@ -1425,6 +1437,7 @@ static rvalue emit_load_of_immediate(encoder *const enc, const rvalue *const val
 		rvalue){ .from_lvalue = !FROM_LVALUE, .kind = RVALUE_KIND_REGISTER, .val.reg_num = reg, .type = value->type };
 }
 
+
 /**
  *	Loads lvalue to register and forms rvalue. If lvalue kind is @c LVALUE_KIND_REGISTER,
  *	returns rvalue on the same register
@@ -1451,14 +1464,16 @@ static rvalue emit_load_of_lvalue(encoder *const enc, const lvalue *const lval)
 		//enc->registers
 		//enc->registers[0] = NULL;
 		const rvalue tmp = { .kind = RVALUE_KIND_CONST, .val.int_val = lval->loc.displ, .type = TYPE_INTEGER };
+		//uni_printf(enc->sx->io, "\n\t#");
 		rvalue displ_rvalue = emit_load_of_immediate(enc, &tmp);
 		//displ_rvalue.val.reg_num = 9;
 		const rvalue base_reg_rvalue = { .kind = RVALUE_KIND_REGISTER,
 										 .val.reg_num = lval->base_reg,	  
 										 .type = TYPE_INTEGER };
-
+		//uni_printf(enc->sx->io, "\t#");
 		emit_binary_operation(enc, &displ_rvalue, &displ_rvalue, &base_reg_rvalue, BIN_ADD);
 		//uni_printf(enc->sx->io, "\t#44444\n");
+		
 		return displ_rvalue;
 	}
 
@@ -1473,6 +1488,7 @@ static rvalue emit_load_of_lvalue(encoder *const enc, const lvalue *const lval)
 		.type = lval->type,
 	};
 
+	
 	uni_printf(enc->sx->io, "\t");
 	instruction_to_io(enc->sx->io, instruction);
 	uni_printf(enc->sx->io, " ");
@@ -1484,7 +1500,7 @@ static rvalue emit_load_of_lvalue(encoder *const enc, const lvalue *const lval)
 	//// Для любых скалярных типов ничего не произойдёт,
 	//// а для остальных освобождается base_reg, в котором хранилось смещение
 	//free_register(enc, lval->base_reg);
-	uni_printf(enc->sx->io, "\t#88888888\n");
+	//uni_printf(enc->sx->io, "\t#88888888\n");
 	return result;
 }
 
@@ -1701,7 +1717,7 @@ static void emit_store_of_rvalue(encoder *const enc, const lvalue *const target,
 	// assert(value->type == target->type);
 
 	const rvalue reg_value = (value->kind == RVALUE_KIND_CONST) ? emit_load_of_immediate(enc, value) : *value;
-
+	
 	if (target->kind == LVALUE_KIND_REGISTER)
 	{
 		if (value->val.reg_num != target->loc.reg_num)
@@ -1727,7 +1743,7 @@ static void emit_store_of_rvalue(encoder *const enc, const lvalue *const target,
 			uni_printf(enc->sx->io, " ");
 			rvalue_to_io(enc, &reg_value);
 			uni_printf(enc->sx->io, ", ");
-			lvalue_to_io(enc, target);
+			lvalue_to_io(enc, target);	
 			uni_printf(enc->sx->io, "\n");
 
 			// Освобождаем регистр только в том случае, если он был занят на этом уровне. Выше не лезем.
@@ -2045,11 +2061,19 @@ static rvalue emit_literal_expression(encoder *const enc, const node *const nd)
  */
 static rvalue emit_printf_expression(encoder *const enc, const node *const nd)
 {
+	const size_t identifier = declaration_variable_get_id(nd);
+	uni_printf(enc->sx->io, "\t# \"%s\" variable declaration:\n", ident_get_spelling(enc->sx, identifier));
+
+	const item_t type = ident_get_type(enc->sx, identifier);
+	printf("%b", type_is_array(enc->sx, type));
 	//uni_printf(enc->sx->io, "\n\t------------printf expr------------------\n");
 	const node string = expression_call_get_argument(nd, 0);
 	const size_t index = expression_literal_get_string(&string);
 	const size_t amount = strings_amount(enc->sx);
 	const size_t parameters_amount = expression_call_get_arguments_amount(nd);
+
+	//const size_t amount_smth = declaration_variable_get_bounds(nd);
+	//printf("%llu", amount_smth);
 
 	for (size_t i = 1; i < parameters_amount; i++)
 	{
@@ -2155,8 +2179,8 @@ static rvalue emit_printf_expression(encoder *const enc, const node *const nd)
 			uni_printf(enc->sx->io, "\tfmv.x.d a1,fa2\n");
 			uni_printf(enc->sx->io, "\tlui a5, %%hi(STRING%zu)\n", index + (i - 1) * amount);
 			uni_printf(enc->sx->io, "\taddi a0, a5, %%lo(STRING%zu)\n", index + (i - 1) * amount);
-			uni_printf(enc->sx->io, "\t#fmv.x.d a1, ft0\n\t");
-			uni_printf(enc->sx->io, "\tcall printf\n", index + (i - 1) * amount);
+			uni_printf(enc->sx->io, "\tfmv.x.d a1, ft0\n");
+			uni_printf(enc->sx->io, "\tcall printf\n\t", index + (i - 1) * amount);
 			instruction_to_io(enc->sx->io, IC_RISCV_NOP);
 			uni_printf(enc->sx->io, "\n");
 
@@ -2298,14 +2322,10 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 		// TODO: что если аргумент - структура, которая сохранена на стеке
 		// TODO: что если аргумент - структура или тип, который занимает несколько регистров?
 		// TODO: возможно оптимизировать трансляцию указанного выше, меняя порядок аргументов
-		//uni_printf(enc->sx->io, "AAAAA\n");
 		emit_literal = false;
-		uni_printf(enc->sx->io, "\t#1!!!!!!!!!!\n");
 
 		const rvalue tmp = emit_expression(enc, &arg);
 		emit_literal = true;
-		uni_printf(enc->sx->io, "\t#2!!!!!!!!!!\n");
-		//uni_printf(enc->sx->io, "AAAAA\n");
 		const rvalue arg_rvalue = (tmp.kind == RVALUE_KIND_CONST) ? emit_load_of_immediate(enc, &tmp) : tmp;
 		// assert(!type_is_floating(enc->sx, arg_rvalue.type));
 		bool is_floating = type_is_floating(enc->sx, arg_rvalue.type);
@@ -2347,7 +2367,7 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 		{
 			// сохраняем a1..a7, f11..f17 на стек
 			// невлезающие в регистры аргументы сохраняем на стек следом -- call convention
-			uni_printf(enc->sx->io, "\t#!!!!!!!!!!\n");
+			//uni_printf(enc->sx->io, "\t#!!!!!!!!!!\n");
 			emit_store_of_rvalue(enc, &tmp_arg_lvalue,
 								 curr_arg_counter < ARG_REG_AMOUNT ? &arg_saved_rvalue : &arg_rvalue);
 
@@ -2378,15 +2398,33 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 	}
 
 	const label label_func = { .kind = L_FUNC, .num = func_ref };
-	//printf("%llu", label_func.num);
 	// выполняем прыжок в функцию по относительному смещению (метке)
-	if (label_func.num != 154)
+
+	if (label_func.num != 154 && label_func.num != 6 && label_func.num != 10 && label_func.num != 14 &&
+		label_func.num != 18 && label_func.num != 22 && label_func.num != 26 && label_func.num != 30 &&
+		label_func.num != 46)
+	{
 		emit_unconditional_branch(enc, IC_RISCV_JAL, &label_func);
-	else
-		uni_printf(enc->sx->io, "\t#$$$$$$$$$$$$$$$\n");
+	}
+	else if (label_func.num != 10 && label_func.num != 14 && label_func.num != 18 && label_func.num != 22 &&
+			 label_func.num != 26 && label_func.num != 30 && label_func.num != 46)
+	{
+		// uni_printf(enc->sx->io, "\t#$$$$$$$$$$$$$$$\n");
 		emit_printf_expression(enc, nd);
-		uni_printf(enc->sx->io, "\t#&&&&&&&&&&&&&&\n");
+		// uni_printf(enc->sx->io, "\t#&&&&&&&&&&&&&&\n");
+	}
 	uni_printf(enc->sx->io, "\n");
+	if (label_func.num == 6)
+	{
+		uni_printf(enc->sx->io, "\tfmv.x.d a0, f0\n");
+		uni_printf(enc->sx->io, "\tfmv.d.x fa0, a0 \n");
+		uni_printf(enc->sx->io, "\tcall    asin\n");
+		uni_printf(enc->sx->io, "\tfcvt.s.d        f10, fa0\n");
+		uni_printf(enc->sx->io, "\tfcvt.d.s        f10, f10\n");
+		// emit_store_of_rvalue(enc, &saved_f0_lvalue, &tmp);
+		// emit_store_of_rvalue(enc, &saved_f0_lvalue, );
+	}
+
 	if (label_func.num == 10) {
 		uni_printf(enc->sx->io, "\tfmv.x.d a0, f0\n");
 		uni_printf(enc->sx->io, "\tfmv.d.x fa0, a0 \n");
@@ -2396,6 +2434,62 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 		//emit_store_of_rvalue(enc, &saved_f0_lvalue, &tmp);
 		//emit_store_of_rvalue(enc, &saved_f0_lvalue, );
 	}
+
+	if (label_func.num == 14)
+	{
+		uni_printf(enc->sx->io, "\tfmv.x.d a0, f0\n");
+		uni_printf(enc->sx->io, "\tfmv.d.x fa0, a0 \n");
+		uni_printf(enc->sx->io, "\tcall    sin\n");
+		uni_printf(enc->sx->io, "\tfcvt.s.d        f10, fa0\n");
+		uni_printf(enc->sx->io, "\tfcvt.d.s        f10, f10\n");
+		// emit_store_of_rvalue(enc, &saved_f0_lvalue, &tmp);
+		// emit_store_of_rvalue(enc, &saved_f0_lvalue, );
+	}
+
+	if (label_func.num == 18)
+	{
+		uni_printf(enc->sx->io, "\tfmv.x.d a0, f0\n");
+		uni_printf(enc->sx->io, "\tfmv.d.x fa0, a0 \n");
+		uni_printf(enc->sx->io, "\tcall    exp\n");
+		uni_printf(enc->sx->io, "\tfcvt.s.d        f10, fa0\n");
+		uni_printf(enc->sx->io, "\tfcvt.d.s        f10, f10\n");
+		// emit_store_of_rvalue(enc, &saved_f0_lvalue, &tmp);
+		// emit_store_of_rvalue(enc, &saved_f0_lvalue, );
+	}
+
+	if (label_func.num == 22)
+	{
+		uni_printf(enc->sx->io, "\tfmv.x.d a0, f0\n");
+		uni_printf(enc->sx->io, "\tfmv.d.x fa0, a0 \n");
+		uni_printf(enc->sx->io, "\tcall    log\n");
+		uni_printf(enc->sx->io, "\tfcvt.s.d        f10, fa0\n");
+		uni_printf(enc->sx->io, "\tfcvt.d.s        f10, f10\n");
+		// emit_store_of_rvalue(enc, &saved_f0_lvalue, &tmp);
+		// emit_store_of_rvalue(enc, &saved_f0_lvalue, );
+	}
+
+	if (label_func.num == 26)
+	{
+		uni_printf(enc->sx->io, "\tfmv.x.d a0, f0\n");
+		uni_printf(enc->sx->io, "\tfmv.d.x fa0, a0 \n");
+		uni_printf(enc->sx->io, "\tcall    log10\n");
+		uni_printf(enc->sx->io, "\tfcvt.s.d        f10, fa0\n");
+		uni_printf(enc->sx->io, "\tfcvt.d.s        f10, f10\n");
+		// emit_store_of_rvalue(enc, &saved_f0_lvalue, &tmp);
+		// emit_store_of_rvalue(enc, &saved_f0_lvalue, );
+	}
+
+	if (label_func.num == 30)
+	{
+		uni_printf(enc->sx->io, "\tfmv.x.d a0, f0\n");
+		uni_printf(enc->sx->io, "\tfmv.d.x fa0, a0 \n");
+		uni_printf(enc->sx->io, "\tcall    sqrt\n");
+		uni_printf(enc->sx->io, "\tfcvt.s.d        f10, fa0\n");
+		uni_printf(enc->sx->io, "\tfcvt.d.s        f10, f10\n");
+		// emit_store_of_rvalue(enc, &saved_f0_lvalue, &tmp);
+		// emit_store_of_rvalue(enc, &saved_f0_lvalue, );
+	}
+
 	if (params_amount > 0)
 		uni_printf(enc->sx->io, "\n\t# register restoring:\n");
 
@@ -3079,7 +3173,7 @@ static void emit_array_init(encoder *const enc, const node *const nd, const size
 
 	for (size_t i = 0; i < amount; i++)
 	{
-		uni_printf(enc->sx->io, "\t#IIIII\n");
+		//uni_printf(enc->sx->io, "\t#IIIII\n");
 		const node subexpr = expression_initializer_get_subexpr(init, i);
 		uni_printf(enc->sx->io, "\n");
 		if (expression_get_class(&subexpr) == EXPR_INITIALIZER)
@@ -3120,7 +3214,7 @@ static void emit_array_init(encoder *const enc, const node *const nd, const size
 			};
 			emit_store_of_rvalue(enc, &array_index_value, &subexpr_value);
 			lock_register(enc, addr->val.reg_num);
-			uni_printf(enc->sx->io, "\t#!!!!!!\n");
+			//uni_printf(enc->sx->io, "\t#!!!!!!\n");
 			if (i != amount - 1)
 			{
 				to_code_2R_I(enc->sx->io, IC_RISCV_ADDI, addr->val.reg_num, addr->val.reg_num, -4);
@@ -3128,7 +3222,7 @@ static void emit_array_init(encoder *const enc, const node *const nd, const size
 			free_rvalue(enc, &subexpr_value);
 			//enc->registers[0] = save_first_reg;
 		}
-		uni_printf(enc->sx->io, "\t#JJJJJJJJ\n");
+		//uni_printf(enc->sx->io, "\t#JJJJJJJJ\n");
 	}
 }
 
@@ -3165,6 +3259,8 @@ static rvalue emit_bound(encoder *const enc, const node *const bound, const node
  *	@param	enc					Encoder
  *	@param	nd					Node in AST
  */
+
+int prev_size = 1;
 static void emit_array_declaration(encoder *const enc, const node *const nd)
 {
 	
@@ -3182,7 +3278,20 @@ static void emit_array_declaration(encoder *const enc, const node *const nd)
 	const lvalue target = {
 		.kind = variable.kind, .type = TYPE_INTEGER, .loc = variable.loc, .base_reg = variable.base_reg
 	};
-	emit_store_of_rvalue(enc, &target, &value);
+	//uni_printf(enc->sx->io, "!!!!!!!!!\n");
+	//uni_printf(enc->sx->io, "%" PRIitem, value.val.int_val);
+	//uni_printf(enc->sx->io, "sw t0, -%i(fp)", value.val.int_val);
+	//emit_store_of_rvalue(enc, &target, &value);
+
+	const node init = declaration_variable_get_initializer(nd);
+	const size_t amount = expression_initializer_get_size(&init);
+	uni_printf(enc->sx->io, "\tsw t0, ");
+	uni_printf(enc->sx->io, "%" PRIitem "(", target.loc.displ - 4 * prev_size + 4);
+	//prev_size = amount;
+	riscv_register_to_io(enc->sx->io, target.base_reg);
+	uni_printf(enc->sx->io, ")\n");
+
+	//uni_printf(enc->sx->io, "!!!!!!!!!\n");
 	free_rvalue(enc, &value);
 
 
@@ -3243,13 +3352,28 @@ static void emit_array_declaration(encoder *const enc, const node *const nd)
 	{
 		uni_printf(enc->sx->io, "\n");
 
-		const rvalue variable_value = emit_load_of_lvalue(enc, &variable);
+		//uni_printf(enc->sx->io, "!!!!!!!!!\n");
+
+		const rvalue tmp = { .kind = RVALUE_KIND_CONST, .val.int_val = variable.loc.displ, .type = TYPE_INTEGER };
+		//rvalue_to_io(enc, &tmp);
+		//uni_printf(enc->sx->io, "-%" PRIitem, (tmp.val.int_val * tmp.val.reg_num) / 4);
+		//uni_printf(enc->sx->io, "#");
 		const node init = declaration_variable_get_initializer(nd);
+		//const size_t amount = expression_initializer_get_size(&init);
+		uni_printf(enc->sx->io, "\tli t0, ");
+		//uni_printf(enc->sx->io, "%" PRIitem, (tmp.val.int_val * amount));
+		uni_printf(enc->sx->io, "%" PRIitem, (tmp.val.int_val - 4 * prev_size + 4));
+
+
+		uni_printf(enc->sx->io, "\t#");
+		const rvalue variable_value = emit_load_of_lvalue(enc, &variable);
 		emit_array_init(enc, nd, 0, &init, &variable_value);
+		//uni_printf(enc->sx->io, "!!!!!!!!!\n");
+		//uni_printf(enc->sx->io, "\n\tadd t0, t0, fp\n");
 
 		free_rvalue(enc, &variable_value);
 	}
-
+	prev_size = amount;
 	//to_code_2R(enc->sx->io, IC_RISCV_MOVE, R_SP, R_A0);
 
 	//to_code_2R(enc->sx->io, IC_RISCV_MOVE, R_A0, R_S0);
@@ -3336,6 +3460,7 @@ static void emit_variable_declaration(encoder *const enc, const node *const nd)
 				free_rvalue(enc, &value);
 			}
 		}
+		prev_size = 1;
 	}
 }
 
@@ -4323,6 +4448,8 @@ static void strings_declaration(encoder *const enc)
 
 				uni_printf(enc->sx->io, "%c", ch);
 				uni_printf(enc->sx->io, "%c", string[j]);
+				if (i != amount - 1)
+					uni_printf(enc->sx->io, "%c", ch);
 
 				uni_printf(enc->sx->io, "\\0\"\n");
 				const label another_str_label = { .kind = L_STRING, .num = (size_t)(i + args_for_printf * amount) };
