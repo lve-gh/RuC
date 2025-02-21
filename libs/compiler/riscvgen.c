@@ -57,7 +57,11 @@ int array_sizes[10000]; // храним здесь размеры массиво
 
 int array_declaration_sizes[10000]; 
 
+//item_t true_loc[10000];
+
 int current_memory_location = 0; // на каком в месте памяти стоим
+
+int is_declaration = false;
 
 bool emit_literal = true;
 
@@ -67,7 +71,9 @@ int link_on_true_location[1000];
 
 int prev_size = 1;
 int prev_declaration_size = 1;
-// Назначение регистров взято из документации SYSTEM V APPLICATION BINARY INTERFACE RISCV RISC Processor, 3rd Edition
+item_t lvalue_location = 0;
+int for_strncpy_counter = 0;
+	// Назначение регистров взято из документации SYSTEM V APPLICATION BINARY INTERFACE RISCV RISC Processor, 3rd Edition
 typedef enum RISCV_REGISTER
 {
 	R_ZERO, /**< Always has the value 0 */
@@ -243,6 +249,8 @@ typedef enum INSTRUCTION
 	IC_RISCV_CVT_D_S, /**< To convert an FP value to double FP. */
 	IC_RISCV_CVT_S_W, /**< To convert fixed point value to single FP. */
 	IC_RISCV_CVT_W_S, /**< To convert single FP to fixed point value */
+	IC_RISCV_FMV_D_X,
+	IC_RISCV_FCVT_D_W
 } riscv_instruction_t;
 
 
@@ -978,6 +986,10 @@ static void instruction_to_io(universal_io *const io, const riscv_instruction_t 
 			break;
 		case IC_RISCV_CVT_W_S:
 			uni_printf(io, "cvt.w.s");
+		case IC_RISCV_FMV_D_X:
+			uni_printf(io, "fmv.d.x");
+		case IC_RISCV_FCVT_D_W:
+			uni_printf(io, "fcvt.d.w");
 			break;
 	}
 }
@@ -1110,7 +1122,9 @@ static void rvalue_to_io(encoder *const enc, const rvalue *const rval)
  *	@param	enc					Encoder
  *	@param	lvalue				Lvalue
  */
-static void lvalue_to_io(encoder *const enc, const lvalue *const value)
+item_t displ_counter = 0;
+item_t true_loc[10000];
+static void lvalue_to_io(encoder *const enc, lvalue * value)
 {
 	if (value->kind == LVALUE_KIND_REGISTER)
 	{
@@ -1118,7 +1132,22 @@ static void lvalue_to_io(encoder *const enc, const lvalue *const value)
 	}
 	else
 	{
-		uni_printf(enc->sx->io, "%" PRIitem "(", value->loc.displ);
+		if (is_declaration)
+		{
+			//printf("%i\n", value->loc.displ);
+			displ_counter -= 4;
+			//true_loc[-value->base_reg] = displ_counter;
+			true_loc[-value->loc.displ] = displ_counter;
+			//printf("%i %i\n", value->loc.displ, true_loc[-value->loc.displ]);
+		}
+		//printf("%i", );
+		//printf("%i\n", true_loc[-value->loc.displ]);
+		//value->loc.displ = 0;
+		//printf("%i", prev_declaration_size);
+		//printf("%i \n", true_loc[-value->loc.displ]);
+		//uni_printf(enc->sx->io, "%" PRIitem "(", value->loc.displ - 4 * prev_declaration_size + 4);
+		//printf("%i %i\n", value->loc.displ, true_loc[-value->loc.displ]);
+		uni_printf(enc->sx->io, "%" PRIitem "(", true_loc[-value->loc.displ]);
 		riscv_register_to_io(enc->sx->io, value->base_reg);
 		uni_printf(enc->sx->io, ")\n");
 	}
@@ -1414,9 +1443,18 @@ static rvalue emit_load_of_immediate(encoder *const enc, const rvalue *const val
 		//to_code_R_I(enc->sx->io, IC_RISCV_LI, R_T0, *(unsigned int *)&f);
 
 		//float_MY
-		uni_printf(enc->sx->io, "\tli t0, %s\n", doubleToHex(f));
+		//
+		//uni_printf(enc->sx->io, "\tli t0, %s\n", doubleToHex(f));
+		uni_printf(enc->sx->io, "\tli ", doubleToHex(f));
+		riscv_register_to_io(enc->sx->io, reg);
+		//uni_printf(enc->sx->io, "\tli ", doubleToHex(f));
+		uni_printf(enc->sx->io, ", %s\n", doubleToHex(f));
 		//uni_printf(enc->sx->io, "\tli t0, 0x%x\n", *(unsigned int *)&f);
-		uni_printf(enc->sx->io, "\tfmv.d.x f0, t0 \n");
+		uni_printf(enc->sx->io, "\tfmv.d.x ");
+		riscv_register_to_io(enc->sx->io, float_reg);
+		uni_printf(enc->sx->io, ", ");
+		riscv_register_to_io(enc->sx->io, reg);
+		uni_printf(enc->sx->io, " \n");
 
 
 		// sw t0, -4(fp)
@@ -1507,7 +1545,7 @@ static rvalue emit_load_of_lvalue(encoder *const enc, const lvalue *const lval)
 	instruction_to_io(enc->sx->io, instruction);
 	uni_printf(enc->sx->io, " ");
 	rvalue_to_io(enc, &result);
-	uni_printf(enc->sx->io, ", %" PRIitem "(", lval->loc.displ);
+	uni_printf(enc->sx->io, ", %" PRIitem "(", true_loc[-lval->loc.displ]);
 	riscv_register_to_io(enc->sx->io, lval->base_reg);
 	uni_printf(enc->sx->io, ")\n");
 
@@ -1725,13 +1763,11 @@ static void emit_move_rvalue_to_register(encoder *const enc, const riscv_registe
  *	@param	target				Target lvalue
  *	@param	value				Rvalue to store
  */
-static void emit_store_of_rvalue(encoder *const enc, const lvalue *const target, const rvalue *const value)
+static void emit_store_of_rvalue(encoder *const enc, lvalue *target, const rvalue *const value)
 {
 	assert(value->kind != RVALUE_KIND_VOID);
 	// assert(value->type == target->type);
-
 	const rvalue reg_value = (value->kind == RVALUE_KIND_CONST) ? emit_load_of_immediate(enc, value) : *value;
-	
 	if (target->kind == LVALUE_KIND_REGISTER)
 	{
 		if (value->val.reg_num != target->loc.reg_num)
@@ -1751,6 +1787,7 @@ static void emit_store_of_rvalue(encoder *const enc, const lvalue *const target,
 	{
 		if ((!type_is_structure(enc->sx, target->type)) && (!type_is_array(enc->sx, target->type)))
 		{
+			//printf("&&&&%i&&&&\n", target->loc.displ);
 			const riscv_instruction_t instruction = type_is_floating(enc->sx, value->type) ? IC_RISCV_FSD : IC_RISCV_SW;
 			uni_printf(enc->sx->io, "\t");
 			instruction_to_io(enc->sx->io, instruction);
@@ -1758,6 +1795,9 @@ static void emit_store_of_rvalue(encoder *const enc, const lvalue *const target,
 			rvalue_to_io(enc, &reg_value);
 			uni_printf(enc->sx->io, ", ");
 			lvalue_to_io(enc, target);	
+			//
+			//printf("&%i&", target->loc.displ);
+			//printf("qwqwqw");
 			uni_printf(enc->sx->io, "\n");
 
 			// Освобождаем регистр только в том случае, если он был занят на этом уровне. Выше не лезем.
@@ -1777,6 +1817,14 @@ static void emit_store_of_rvalue(encoder *const enc, const lvalue *const target,
 				instruction_to_io(enc->sx->io, IC_RISCV_SW);
 				uni_printf(enc->sx->io, " ");
 				rvalue_to_io(enc, &reg_value);
+				//printf("%llu\n", true_loc[-target->loc.displ]);
+				//if (is_declaration)
+				//{
+				//	printf("%i", target->loc.displ);
+				//	displ_counter -= 4;
+				//	true_loc[-target->loc.displ] = displ_counter;
+				//	target->loc.displ = true_loc[-target->loc.displ];
+				//}
 				uni_printf(enc->sx->io, ", %" PRIitem "(", target->loc.displ);
 				riscv_register_to_io(enc->sx->io, target->base_reg);
 				uni_printf(enc->sx->io, ")\n\n");
@@ -1886,6 +1934,7 @@ static void emit_binary_operation(encoder *const enc, const rvalue *const dest, 
 
 	if ((first_operand->kind == RVALUE_KIND_REGISTER) && (second_operand->kind == RVALUE_KIND_REGISTER))
 	{
+
 		switch (operator)
 		{
 			case BIN_LT:
@@ -1934,6 +1983,7 @@ static void emit_binary_operation(encoder *const enc, const rvalue *const dest, 
 	}
 	else
 	{
+
 		const rvalue real_first_operand = emit_operand_load(enc, first_operand, operator, true);
 		const rvalue real_second_operand = emit_operand_load(enc, second_operand, operator, false);
 
@@ -1978,6 +2028,7 @@ static void emit_binary_operation(encoder *const enc, const rvalue *const dest, 
 				break;
 			default:
 			{
+
 				bool does_need_instruction_working_with_both_operands_in_registers =
 					// Нет команд работающих с операндами в виде константы
 					(operator== BIN_SUB) || (operator== BIN_DIV) || (operator== BIN_MUL) ||
@@ -1996,10 +2047,11 @@ static void emit_binary_operation(encoder *const enc, const rvalue *const dest, 
 				instruction_to_io(
 					enc->sx->io,
 					get_bin_instruction(operator,
-										/* Один регистр => true в get_bin_instruction() -> */ !does_need_instruction_working_with_both_operands_in_registers,
+										/* Один регистр => true в get_bin_instruction() -> */ false,
 										is_floating)
 				);
 				uni_printf(enc->sx->io, " ");
+
 				rvalue_to_io(enc, dest);
 				uni_printf(enc->sx->io, ", ");
 				if (change_order)
@@ -2032,6 +2084,7 @@ static void emit_binary_operation(encoder *const enc, const rvalue *const dest, 
 static rvalue emit_literal_expression(encoder *const enc, const node *const nd)
 {
 	const item_t type = expression_get_type(nd);
+
 	switch (type_get_class(enc->sx, type))
 	{
 		case TYPE_BOOLEAN:
@@ -2804,8 +2857,6 @@ static rvalue emit_strcat_expression(encoder *const enc, const node *const nd)
 	const lvalue lval2 = emit_lvalue(enc, &arg2);
 
 	const int size1 = array_sizes[-link_on_true_location[-lval1.loc.displ]];
-	//const int size2 = array_sizes[-lval2.loc.displ];
-	//const int size2 = array_sizes[-lval1.loc.displ * size1 + 4];
 	const int size2 = array_sizes[-link_on_true_location[-lval2.loc.displ]];
 	//printf("%i", size1);
 	//emit_expression(enc, &arg1);
@@ -2844,6 +2895,40 @@ static rvalue emit_strcat_expression(encoder *const enc, const node *const nd)
 	//const size_t amount2 = expression_inline_get_size(arg2);
 	//printf("%llu", array_sizes[4]);
 	//uni_printf()
+	free_register(enc, R_T0);
+}
+
+static rvalue emit_strncpy_expression(encoder *const enc, const node *const nd)
+{
+	const node callee = expression_call_get_callee(nd);
+	const size_t func_ref = expression_identifier_get_id(&callee);
+	lvalue variable = displacements_add(enc, func_ref, false);
+	//printf("%i", variable.loc.displ);
+
+	const node arg1 = expression_call_get_argument(nd, 0);
+	const node arg2 = expression_call_get_argument(nd, 1);
+	const lvalue lval1 = emit_lvalue(enc, &arg1);
+	const lvalue lval2 = emit_lvalue(enc, &arg2);
+	
+	//int s = arg2.tree->array[arg2.index];
+	//printf("!%i!", s);
+	const int size1 = array_sizes[-link_on_true_location[-lval1.loc.displ]];
+	const int size2 = array_sizes[-link_on_true_location[-lval2.loc.displ]];
+	//uni_printf(enc->sx->io, "!!!!!!!%llu!!!!!!", lvalue_location);
+	//const rvalue tmp_rval = emit_load_of_lvalue(enc, &prev_arg_displ[]);
+	//const node initializer = declaration_variable_get_initializer(nd);
+	//const lvalue lval = emit_lvalue(enc, &initializer);
+	//const lvalue lval = emit_lvalue(enc, nd);
+	//expression_
+	//const size_t identifier = declaration_variable_get_id(nd);
+	//const lvalue variable = displacements_add(enc, identifier, false);
+	//printf("%i", lval.type);
+
+	for (int i = 0; i < size2; i++)
+	{
+		uni_printf(enc->sx->io, "\tlw t0, %i(fp)\n", (link_on_true_location[-lval2.loc.displ] - (4 * i)));
+		uni_printf(enc->sx->io, "\tsw t0, %i(fp)\n", link_on_true_location[-lval1.loc.displ] - 4 * i);
+	}
 	free_register(enc, R_T0);
 }
 	/**
@@ -3016,6 +3101,10 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 	{
 		emit_strcat_expression(enc, nd);
 	}
+	else if (label_func.num == 42)
+	{
+		emit_strncpy_expression(enc, nd);
+	}
 	else if (label_func.num != 154 && label_func.num != 6 && label_func.num != 10 && label_func.num != 14 &&
 		label_func.num != 18 && label_func.num != 22 && label_func.num != 26 && label_func.num != 30 &&
 		label_func.num != 46)
@@ -3113,6 +3202,8 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 	// восстановление значений регистров a1-a7 со стека
 	for (size_t i = 1; i < params_amount; ++i)
 	{
+		//lvalue_location = 20;
+		//printf("%llu\n", lvalue_location);
 		uni_printf(enc->sx->io, "\n");
 		// загружаем во временный регистр значение аргумента со стека
 		const rvalue tmp_rval = emit_load_of_lvalue(enc, &prev_arg_displ[i]);
@@ -3132,7 +3223,6 @@ static rvalue emit_call_expression(encoder *const enc, const node *const nd)
 	{
 		to_code_2R_I(enc->sx->io, IC_RISCV_ADDI, R_SP, R_SP, (item_t)displ_for_parameters);
 	}
-
 	return ret;
 }
 
@@ -3163,6 +3253,7 @@ static rvalue emit_member_expression(encoder *const enc, const node *const nd)
 static rvalue emit_cast_expression(encoder *const enc, const node *const nd)
 {
 	const node operand = expression_cast_get_operand(nd);
+
 	const rvalue value = emit_expression(enc, &operand);
 
 	const item_t target_type = expression_get_type(nd);
@@ -3177,8 +3268,10 @@ static rvalue emit_cast_expression(encoder *const enc, const node *const nd)
 								.type = target_type };
 
 		// FIXME: избавится от to_code функций
-		to_code_2R(enc->sx->io, IC_RISCV_MFC_1, value.val.reg_num, result.val.reg_num);
-		to_code_2R(enc->sx->io, IC_RISCV_CVT_S_W, result.val.reg_num, result.val.reg_num);
+		//to_code_2R(enc->sx->io, IC_RISCV_MFC_1, value.val.reg_num, result.val.reg_num);
+		//to_code_2R(enc->sx->io, IC_RISCV_CVT_S_W, result.val.reg_num, result.val.reg_num);
+
+		to_code_2R(enc->sx->io, IC_RISCV_FCVT_D_W, result.val.reg_num, value.val.reg_num);
 
 		free_rvalue(enc, &value);
 		return result;
@@ -3676,16 +3769,17 @@ static rvalue emit_expression(encoder *const enc, const node *const nd)
 				//return RVALUE_VOID;
 
 		case EXPR_CALL:
+			//uni_printf(enc->sx->io, "\t#!!!!!!!!!\n");
 			return emit_call_expression(enc, nd);
 
 		case EXPR_MEMBER:
 			return emit_member_expression(enc, nd);
 
 		case EXPR_CAST:
+
 			return emit_cast_expression(enc, nd);
 
 		case EXPR_UNARY:
-
 			return emit_unary_expression(enc, nd);
 
 		case EXPR_BINARY:
@@ -3903,6 +3997,7 @@ static void emit_array_declaration(encoder *const enc, const node *const nd)
 						   .type = TYPE_INTEGER };
 	to_code_2R(enc->sx->io, IC_RISCV_MOVE, value.val.reg_num, R_SP);
 	int save_old_displ = variable.loc.displ;
+	//printf("%i", variable.loc.displ - 4 * prev_declaration_size + 4);
 	variable.loc.displ = variable.loc.displ - 4 * prev_declaration_size + 4;
 	link_on_true_location[-save_old_displ] = variable.loc.displ;
 	const lvalue target = {
@@ -3919,7 +4014,8 @@ static void emit_array_declaration(encoder *const enc, const node *const nd)
 	//const size_t amount_of_array = 
 	uni_printf(enc->sx->io, "\tsw t0, ");
 	uni_printf(enc->sx->io, "%" PRIitem "(", target.loc.displ);
-	//printf("%i", target.loc.displ);
+	//printf("!!!!!!%i!!!!!", target.loc.displ);
+	
 	//На target.loc.displ - 4 * prev_size + 4  - начало массива, в array_sizes храним его размер
 	array_sizes[-(target.loc.displ)] = amount;
 	array_declaration_sizes[-(target.loc.displ)] = declaration_size.val.int_val;
@@ -4055,6 +4151,7 @@ static void emit_structure_init(encoder *const enc, const lvalue *const target, 
 		{
 			const rvalue subexpr_rvalue = emit_expression(enc, &subexpr);
 			emit_store_of_rvalue(enc, &member_lvalue, &subexpr_rvalue);
+
 			free_rvalue(enc, &subexpr_rvalue);
 		}
 	}
@@ -4068,6 +4165,7 @@ static void emit_structure_init(encoder *const enc, const lvalue *const target, 
  */
 static void emit_variable_declaration(encoder *const enc, const node *const nd)
 {
+	is_declaration = true;
 	const size_t identifier = declaration_variable_get_id(nd);
 	uni_printf(enc->sx->io, "\t# \"%s\" variable declaration:\n", ident_get_spelling(enc->sx, identifier));
 
@@ -4078,6 +4176,7 @@ static void emit_variable_declaration(encoder *const enc, const node *const nd)
 	}
 	else
 	{
+
 		const lvalue variable = displacements_add(enc, identifier, false);
 		if (declaration_variable_has_initializer(nd))
 		{
@@ -4091,12 +4190,12 @@ static void emit_variable_declaration(encoder *const enc, const node *const nd)
 			else
 			{
 				const rvalue value = emit_expression(enc, &initializer);
-
 				emit_store_of_rvalue(enc, &variable, &value);
 				free_rvalue(enc, &value);
 			}
 		}
 		prev_size = 1;
+		is_declaration = false; 
 	}
 }
 
@@ -5090,8 +5189,8 @@ static void strings_declaration(encoder *const enc)
 				uni_printf(enc->sx->io, "%c", ch);
 			}
 		}
-
-		uni_printf(enc->sx->io, "%%\\0\"\n");
+		uni_printf(enc->sx->io, "\\0\"\n");
+		//uni_printf(enc->sx->io, "%%\\0\"\n");
 	}
 	//uni_printf(enc->sx->io, "\t.text\n");
 	//uni_printf(enc->sx->io, "\t.align 2\n\n");
@@ -5144,22 +5243,22 @@ DEFARR2:\n\
 // TODO: use DEFARR from postgen when we will have code generation for arrays
 static void postgen_riscv(syntax *const sx)
 {
-	uni_printf(sx->io, " \n\n# defarr\n\
-# объявление одномерного массива\n\
-# a0 -- адрес первого элемента\n\
-# a1 -- размер измерения\n\
-DEFARR1:\n\
-	sw a1, 4(a0)			# Сохранение границы\n\
-	li t0, 4				# Загрузка размера слова\n\
-	mul t0, t0, a1		# Подсчёт размера первого измерения массива в байтах\n\
-	sub t0, a0, t0		# Считаем адрес после конца массива, т.е. t0 -- на слово ниже последнего элемента\n\
-	jr ra\n ");
-
-	uni_printf(sx->io, " \n\n# defarr\n\
-DEFARR2:\n\
-  sw a0, 0(a2) \n\
-  mv t0, ra \n  jal ra, DEFARR1 \n\
-  mv ra, t0  \n\  addi a2, a2, -8 \n\  addi a0, t0, -8 \n  addi a3, a3, -1  \n\  bnez a3, DEFARR2 \n\  jr ra\n");
+//	uni_printf(sx->io, " \n\n# defarr\n\
+//# объявление одномерного массива\n\
+//# a0 -- адрес первого элемента\n\
+//# a1 -- размер измерения\n\
+//DEFARR1:\n\
+//	sw a1, 4(a0)			# Сохранение границы\n\
+//	li t0, 4				# Загрузка размера слова\n\
+//	mul t0, t0, a1		# Подсчёт размера первого измерения массива в байтах\n\
+//	sub t0, a0, t0		# Считаем адрес после конца массива, т.е. t0 -- на слово ниже последнего элемента\n\
+//	jr ra\n ");
+//
+//	uni_printf(sx->io, " \n\n# defarr\n\
+//DEFARR2:\n\
+//  sw a0, 0(a2) \n\
+//  mv t0, ra \n  jal ra, DEFARR1 \n\
+//  mv ra, t0  \n\  addi a2, a2, -8 \n\  addi a0, t0, -8 \n  addi a3, a3, -1  \n\  bnez a3, DEFARR2 \n\  jr ra\n");
 
 	//uni_printf(sx->io, "error:
 	//				   "\tla x1, error_message\n"
