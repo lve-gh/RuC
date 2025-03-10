@@ -1140,13 +1140,6 @@ static void lvalue_to_io(encoder *const enc, lvalue * value)
 			true_loc[-value->loc.displ] = displ_counter;
 			//printf("%i %i\n", value->loc.displ, true_loc[-value->loc.displ]);
 		}
-		//printf("%i", );
-		//printf("%i\n", true_loc[-value->loc.displ]);
-		//value->loc.displ = 0;
-		//printf("%i", prev_declaration_size);
-		//printf("%i \n", true_loc[-value->loc.displ]);
-		//uni_printf(enc->sx->io, "%" PRIitem "(", value->loc.displ - 4 * prev_declaration_size + 4);
-		//printf("%i %i\n", value->loc.displ, true_loc[-value->loc.displ]);
 		uni_printf(enc->sx->io, "%" PRIitem "(", true_loc[-value->loc.displ]);
 		riscv_register_to_io(enc->sx->io, value->base_reg);
 		uni_printf(enc->sx->io, ")\n");
@@ -2900,16 +2893,20 @@ static rvalue emit_strcat_expression(encoder *const enc, const node *const nd)
 
 static rvalue emit_strncpy_expression(encoder *const enc, const node *const nd)
 {
-	const node callee = expression_call_get_callee(nd);
-	const size_t func_ref = expression_identifier_get_id(&callee);
+	//const node callee = expression_call_get_callee(nd);
+	const node callee2 = expression_call_get_argument(nd, 0);
+	const size_t func_ref = expression_identifier_get_id(&callee2);
 	lvalue variable = displacements_add(enc, func_ref, false);
-	//printf("%i", variable.loc.displ);
-
+	printf("%i", variable.loc.displ);
+	for (int i = 0; i < 20; i++)
+	{
+		//printf("%i  %i\n", -i, true_loc[i]);
+	}
 	const node arg1 = expression_call_get_argument(nd, 0);
 	const node arg2 = expression_call_get_argument(nd, 1);
 	const lvalue lval1 = emit_lvalue(enc, &arg1);
 	const lvalue lval2 = emit_lvalue(enc, &arg2);
-	
+	printf("%i", link_on_true_location[-lval1.loc.displ]);
 	//int s = arg2.tree->array[arg2.index];
 	//printf("!%i!", s);
 	const int size1 = array_sizes[-link_on_true_location[-lval1.loc.displ]];
